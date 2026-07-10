@@ -5,8 +5,12 @@
 站点再多、再分散，也只需维护一份 `docker-compose.yml`，登录后即可看到统一大屏；公开大屏还支持无登录共享给团队/客户。
 
 ![站点管理](docs/imgs/sites.png)
+
 ![公开大屏](docs/imgs/open-dashboard.png)
 
+<p float="left">
+  <img src="docs/imgs/im.png" width="400" />
+</p>
 ## 主要功能
 
 - **站点与分类管理**：按"默认分类 / 官方 / 公司 / 客户 / 第三方依赖"等维度组织站点，支持自定义分类。
