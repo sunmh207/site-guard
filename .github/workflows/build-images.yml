@@ -42,14 +42,13 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
+            type=edge,branch=main
 
       # 构建并推送多架构镜像
       - name: Build and push Docker image (Multi-Arch)
         uses: docker/build-push-action@v6
         with:
           context: .
-          # Dockerfile 直接通过 Gradle Wrapper 在线下载 gradle-9.4.1，
-          # 不依赖任何预置的 gradle-cache，干净 CI 环境可重复构建
           file: ./Dockerfile
           push: true
           platforms: linux/amd64,linux/arm64/v8

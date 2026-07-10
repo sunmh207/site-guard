@@ -3,8 +3,8 @@
 /// 复用 admin 配置接口（POST /config/set），key=open_dashboard。
 /// 路径风格与 notificationSettingApi 保持一致：仅 GET/POST，按动作命名。
 import { $adminApi } from '~/api/admin-api-client'
-import type { StatusResult } from '~/shared/types/api'
-import type { ConfigResponse, OpenDashboardEnabled } from '../types/open-dashboard-setting.dto'
+import type { StatusResult, ConfigResponse } from '~/shared/types/api'
+import type { OpenDashboardEnabled } from '../types/open-dashboard-setting.dto'
 
 const KEY = 'open_dashboard'
 

@@ -101,6 +101,23 @@ export default defineNuxtConfig({
         },
     },
 
+    // Vite 构建配置：关闭生产 sourcemap。
+    // 原因：nuxt:module-preload-polyfill / @tailwindcss/vite 这两个插件不会为
+    // 自己的 transform 生成 sourcemap，但 Vite 会因为链路上其它插件产出了
+    // sourcemap 而报「Sourcemap is likely to be incorrect」WARN。
+    // 生产构建本身就不需要 sourcemap（部署产物不会被人类读源码）。
+    vite: {
+        build: {
+            sourcemap: false,
+        },
+    },
+    // Nuxt 顶层 sourcemap 控制（覆盖默认开启）。和 vite.build.sourcemap 互补，
+    // 两者都关才能彻底压下「plugin xxx Sourcemap is likely to be incorrect」告警。
+    sourcemap: {
+        client: false,
+        server: false,
+    },
+
     // 颜色主题配置 - 绿色主色调
     colorMode: {
         preference: 'system',

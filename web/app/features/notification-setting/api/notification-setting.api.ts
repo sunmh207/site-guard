@@ -4,9 +4,8 @@
 /// useAdminApi / $adminApi 由 ~/api/admin-api-client 提供，
 /// 自动加上 /api/v1/admin 前缀与 JWT 头。
 import { $adminApi } from '~/api/admin-api-client'
-import type { StatusResult } from '~/shared/types/api'
+import type { StatusResult, ConfigResponse } from '~/shared/types/api'
 import type {
-  ConfigResponse,
   NotificationConfig,
   TestWebhookParams,
   TestWebhookResult,

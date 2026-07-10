@@ -17,8 +17,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useMessage } from '~/shared/composables/useMessage'
 import { openDashboardSettingApi } from '~/features/open-dashboard-setting/api/open-dashboard-setting.api'
 import { ROUTES } from '~/shared/constants/routes'
-import type { StatusResult } from '~/shared/types/api'
-import type { ConfigResponse } from '~/features/open-dashboard-setting/types/open-dashboard-setting.dto'
+import type { StatusResult, ConfigResponse } from '~/shared/types/api'
 
 const message = useMessage()
 

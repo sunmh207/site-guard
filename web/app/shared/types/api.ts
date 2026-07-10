@@ -81,3 +81,14 @@ export interface ApiErrorResponse {
   message: string
   timestamp: number
 }
+
+/**
+ * 系统配置响应：后端通用 /config/get 接口的载荷结构。
+ * 任何 feature 读写系统配置（key→JSON value）都用这个泛型。
+ * 后端对应：com.siteguard.system.dto.ConfigResponse（java record）。
+ */
+export interface ConfigResponse<T = unknown> {
+  key: string
+  value: T
+  updatedAt: number
+}

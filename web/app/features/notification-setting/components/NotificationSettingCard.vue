@@ -20,9 +20,8 @@ import { ref, computed, onMounted } from 'vue'
 import { useMessage } from '~/shared/composables/useMessage'
 import { notificationSettingApi } from '~/features/notification-setting/api/notification-setting.api'
 import { maskWebhook } from '~/shared/utils/mask'
-import type { StatusResult } from '~/shared/types/api'
+import type { StatusResult, ConfigResponse } from '~/shared/types/api'
 import type {
-  ConfigResponse,
   NotificationConfig,
 } from '~/features/notification-setting/types/notification-setting.dto'
 import {

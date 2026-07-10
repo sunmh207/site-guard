@@ -2,15 +2,9 @@
 ///
 /// 后端：系统配置（key=open_dashboard）的 JSON 值结构，
 ///       与 java ConfigKey.OPEN_DASHBOARD（Boolean）一一对应。
-
-/// 通用配置响应结构：与 notification-setting.dto 中 ConfigResponse 同型。
-/// 这里没有引入跨模块引用，遵循「每个 feature 自描述」原则——未来如果
-/// notification-setting 或 cert-alert 还需要复用，可以提到 shared/types。
-export interface ConfigResponse<T = unknown> {
-  key: string
-  value: T
-  updatedAt: number
-}
+///
+/// 注意：通用 ConfigResponse<T> 已上移至 ~/shared/types/api，
+/// 本模块与 notification-setting / alert-confirm-setting 共享该类型。
 
 /// 开关值：true=已开启；false 或不存在=已关闭（默认）。
 export type OpenDashboardEnabled = boolean
