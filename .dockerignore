@@ -1,0 +1,53 @@
+# Git
+.git
+.gitignore
+
+# IDE
+.idea
+.vscode
+.cursor
+*.iml
+
+# Node.js
+web/node_modules
+web/.nuxt
+web/.output
+web/.data
+web/.nitro
+web/.cache
+web/dist
+
+# Gradle
+server/.gradle
+server/build
+server/out
+server/data
+server/logs
+
+# 数据和日志
+data
+logs
+
+# 环境变量（构建时不需要）
+server/.env
+web/.env
+
+# 临时文件
+*.log
+*.tmp
+.DS_Store
+
+# Docker（避免递归）
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# 测试与文档
+test-results
+playwright-report
+.playwright
+blob-report
+verification/report
+docs
+.codegraph
+.superpowers

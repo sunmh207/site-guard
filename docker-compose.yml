@@ -1,0 +1,50 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: site-guard-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: root123456
+      MYSQL_DATABASE: site-guard
+      TZ: Asia/Shanghai
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_general_ci
+      - --default-authentication-plugin=mysql_native_password
+    # 主机端口使用 13307 避开本地 dev MySQL（server/.env 中 DB_PORT=3307）
+    ports:
+      - "13306:3306"
+    volumes:
+      - ./data/mysql:/var/lib/mysql
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot123456"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  site-guard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: site-guard:1.0.0
+    container_name: site-guard
+    ports:
+      - "1080:80"
+    environment:
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_NAME: site-guard
+      DB_USER: root
+      DB_PASSWORD: root123456
+      # JWT 密钥需 ≥ 32 字符（256 位）以满足 HS256 算法最低要求
+      # 生产环境请使用: openssl rand -base64 32
+      JWT_SECRET: ChangeThisSecretKeyInProduction_7gK9xQ2mLp8Zr4VnT6cW1yHs3DfA0bJu
+      JAVA_OPTS: -Xms256m -Xmx512m
+      LOGGING_LEVEL_ROOT: INFO
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    depends_on:
+      mysql:
+        condition: service_healthy
+    restart: unless-stopped

@@ -1,0 +1,76 @@
+/**
+ * Site 模块 - 后端接口契约 (DTO)
+ *
+ * 这份类型声明是前端与后端通信的契约来源：
+ * - 字段名严格对应后端 SiteDTO / SiteCreateParams / SiteUpdateParams / SiteSearchParams
+ * - 新增字段必须前后端同步变更
+ * - 不要在此文件中放入表单校验逻辑；校验逻辑放 schemas/site.schema.ts
+ */
+
+/// 可用性状态（与后端 SiteStatus 枚举保持同名字符串）
+export type SiteStatus = 'UNKNOWN' | 'UP' | 'DOWN'
+
+/// 站点信息（接口返回结构）
+export interface SiteDto {
+  /// 主键
+  id: number
+  /// 站点名称（唯一，1-128 字符）
+  name: string
+  /// 站点 URL（唯一，必须 http:// 或 https:// 开头）
+  url: string
+  /// 所属分类 ID（每个站点必属一个分类，后端兜底为"默认分类"）
+  categoryId: number
+  /// 分类显示名（仅展示用，后端未填充时为 undefined）
+  categoryName?: string
+  /// 分类面包屑路径，如 "默认分类 / 浙江 / 杭州"（仅展示用）
+  categoryPath?: string
+  /// 可用性状态，未检测时为 null
+  availabilityStatus?: SiteStatus | null
+  /// 上次检测时间戳（毫秒），未检测为 null
+  lastCheckedAt?: number | null
+  /// 证书到期时间戳（毫秒）
+  certificateExpiresAt?: number | null
+  /// 域名到期时间戳（毫秒）
+  domainExpiresAt?: number | null
+  /// 证书签发机构
+  certificateIssuer?: string | null
+  /// 是否暂停监控（true = 该站点不参与扫描）
+  paused: boolean
+  /// 创建时间戳（毫秒）
+  createdAt: number
+  /// 更新时间戳（毫秒）
+  updatedAt: number
+  /// 站点级连续失败阈值覆盖；null = 走全局默认（详见 alert-confirm-setting）
+  consecutiveFailuresBeforeAlert?: number | null
+}
+
+/// 创建入参
+export interface SiteCreateParams {
+  name: string
+  url: string
+  /// 所属分类 ID；省略时后端兜底为"默认分类"
+  categoryId?: number
+  /// 站点级连续失败阈值覆盖；null/省略 = 走全局默认
+  consecutiveFailuresBeforeAlert?: number | null
+}
+
+/// 更新入参（包含 ID 标识）
+export interface SiteUpdateParams {
+  id: number
+  name: string
+  url: string
+  /// 所属分类 ID；省略时保持当前分类不变
+  categoryId?: number
+  /// 站点级连续失败阈值覆盖；null = 走全局默认；undefined = 不变更
+  consecutiveFailuresBeforeAlert?: number | null
+}
+
+/// 搜索条件（不含分页字段，分页由 useSearchPagination 注入）
+export interface SiteSearchParams {
+  /// 名称模糊匹配关键字
+  keyword?: string
+  /// 状态精确过滤
+  availabilityStatus?: SiteStatus
+  /// 按分类过滤（后端自动展开为含全部子分类）
+  categoryId?: number
+}

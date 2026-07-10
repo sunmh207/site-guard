@@ -1,0 +1,58 @@
+spring:
+  config:
+    import: optional:file:.env[.properties]
+  application:
+    name: site-guard
+  datasource:
+    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:ai-courseware}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
+    username: ${DB_USER:root}
+    password: ${DB_PASSWORD:root}
+  # 分页配置
+  data:
+    web:
+      pageable:
+        one-indexed-parameters: true
+  # Quartz 调度器：使用 JDBC 持久化，schema 由 Spring Boot quartz starter 启动时自动建表
+  # （spring-boot-starter-quartz 捆绑了官方 tables_*.sql，无需我们维护 DDL）
+  quartz:
+    job-store-type: jdbc
+    jdbc:
+      initialize-schema: always
+    properties:
+      org:
+        quartz:
+          scheduler:
+            instanceName: SiteGuardScheduler
+            instanceId: AUTO
+          threadPool:
+            threadCount: "5"
+
+# app 配置
+app:
+  # 认证配置
+  auth:
+    # 固定管理员账号（明文，启动时 BCrypt 哈希入内存，不写库）
+    admin:
+      username: ${ADMIN_USERNAME:admin}
+      password: ${ADMIN_PASSWORD:admin}
+      nickname: 系统管理员
+    jwt:
+      issuer: site-guard
+      secret: ${JWT_SECRET:ChangeThisSecretKeyInProduction_7gK9xQ2mLp8Zr4VnT6cW1yHs3DfA0bJu}
+      access-token-ttl: 3600000      # 60 分钟
+      refresh-token-ttl: 2592000000  # 30 天
+
+# SpringDoc OpenAPI 配置
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    enabled: true
+  group-configs:
+    - group: admin
+      packages-to-scan: com.codeages.aicourseware.api.admin
+      paths-to-match: /api/v1/admin/**
+    - group: open
+      packages-to-scan: com.codeages.aicourseware.api.open
+      paths-to-match: /api/v1/open/**
