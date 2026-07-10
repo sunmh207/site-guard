@@ -25,29 +25,28 @@ RUN pnpm run generate
 
 
 # -------------------- 阶段 2: 构建后端 --------------------
-# 使用 Gradle Wrapper 在线下载指定版本（无需预置 gradle-cache，方便 CI 干净环境构建）
-FROM gradle:jdk25-alpine AS backend-builder
+# 钉死 Gradle 9.4.1 + JDK 25 Alpine 镜像,镜像内已预装 gradle 命令,
+# 因此不再调用 ./gradlew,避免从 services.gradle.org → GitHub release-assets
+FROM gradle:9.4.1-jdk25-alpine AS backend-builder
 
 WORKDIR /backend
-
-# 复制 Gradle Wrapper 与构建脚本（利用缓存：依赖描述变更时才重跑此层）
-COPY server/gradle ./gradle
-COPY server/gradlew .
-COPY server/gradlew.bat .
-COPY server/build.gradle.kts .
-COPY server/settings.gradle.kts .
 
 # 让 Wrapper 把 Gradle 发行版与依赖缓存到固定目录，便于层缓存复用
 ENV GRADLE_USER_HOME=/gradle
 
-# 预解析依赖，加速后续构建
-RUN ./gradlew dependencies --no-daemon || true
+# 只 COPY 构建脚本（依赖描述变更时才重跑此层); wrapper 文件保留在仓库
+# 供本地开发使用,Docker 构建已绕过 wrapper 调用
+COPY server/build.gradle.kts .
+COPY server/settings.gradle.kts .
+
+# 预解析依赖，加速后续构建（镜像内 gradle 命令已就绪）
+RUN gradle dependencies --no-daemon || true
 
 # 复制后端源码
 COPY server/ ./
 
 # 构建 Spring Boot 可执行 JAR
-RUN ./gradlew bootJar --no-daemon
+RUN gradle bootJar --no-daemon
 
 
 # -------------------- 阶段 3: 运行时镜像 --------------------
