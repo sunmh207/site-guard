@@ -3,8 +3,8 @@ services:
     image: mysql:8.4.10
     container_name: site-guard-mysql
     environment:
-      MYSQL_ROOT_PASSWORD: root123456
-      MYSQL_DATABASE: site-guard
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-root123456}
+      MYSQL_DATABASE: ${DB_NAME:-site-guard}
       TZ: Asia/Shanghai
     command:
       - --character-set-server=utf8mb4
@@ -15,7 +15,7 @@ services:
       - ./data/mysql:/var/lib/mysql
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot123456"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${DB_PASSWORD:-root123456}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -28,19 +28,11 @@ services:
     container_name: site-guard
     ports:
       - "1080:80"
+    env_file:
+      - path: .env
+        required: false
     environment:
       DB_HOST: mysql
-      DB_PORT: 3306
-      DB_NAME: site-guard
-      DB_USER: root
-      DB_PASSWORD: root123456
-      # JWT 密钥需 ≥ 32 字符（256 位）以满足 HS256 算法最低要求
-      # 生产环境请使用: openssl rand -base64 32
-      JWT_SECRET: ChangeThisSecretKeyInProduction_7gK9xQ2mLp8Zr4VnT6cW1yHs3DfA0bJu
-      JAVA_OPTS: -Xms256m -Xmx512m
-      LOGGING_LEVEL_ROOT: INFO
-      ADMIN_USERNAME: admin
-      ADMIN_PASSWORD: admin
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
