@@ -14,7 +14,6 @@ import { adminSiteApi } from '~/features/site/api/site.api'
 import type { SiteDto } from '~/features/site/types/site.dto'
 import SiteStatusCell from '~/features/site/components/SiteStatusCell.vue'
 import SiteCertificateCell from '~/features/site/components/SiteCertificateCell.vue'
-import SiteDomainCell from '~/features/site/components/SiteDomainCell.vue'
 import SiteEditSlideover from '~/features/site/components/SiteEditSlideover.vue'
 import SiteCheckHistorySlideover from '~/features/site/components/SiteCheckHistorySlideover.vue'
 import SitePathRuleSlideover from '~/features/site-path-rule/components/SitePathRuleSlideover.vue'
@@ -367,13 +366,6 @@ const columns = [
     header: '证书到期',
     cell: ({ row }: { row: Row<SiteDto> }) => (
       <SiteCertificateCell expiresAt={row.original.certificateExpiresAt} />
-    ),
-  },
-  {
-    accessorKey: 'domainExpiresAt',
-    header: '域名到期',
-    cell: ({ row }: { row: Row<SiteDto> }) => (
-      <SiteDomainCell expiresAt={row.original.domainExpiresAt} />
     ),
   },
   {
