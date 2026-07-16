@@ -329,4 +329,55 @@ class AlertDetectionServiceTest {
         // 关键断言：守卫对非 PATH_CHECK 的 CERT_EXPIRY 同样生效
         verifyNoInteractions(publisher);
     }
+
+    /// 恢复事件透传 SiteCheckState.lastNotifiedAt 作为 abnormalStartedAt
+    @Test
+    void recoveryEvent_passesAbnormalStartedAtToPublisher() {
+        var s = site(1L);
+        when(siteRepo.findAll()).thenReturn(List.of(s));
+        long abnormalStart = 1_699_999_900_000L;
+        SiteCheckState oldState = stateRow(1L, "AVAILABILITY", "DOWN");
+        oldState.setLastNotifiedAt(abnormalStart);
+        oldState.setUpdatedAt(abnormalStart);
+        when(stateRepo.findByAlertKind(AlertKind.AVAILABILITY)).thenReturn(List.of(oldState));
+        var def = new StubDefinition(AlertKind.AVAILABILITY, Map.of(
+                1L, Set.of(new EvalResult("UP", AlertStatus.NORMAL, "可用性已恢复"))));
+        when(stateRepo.findById(new SiteCheckStateId(1L, "AVAILABILITY", "DOWN")))
+                .thenReturn(Optional.of(oldState));
+
+        svcWith(def).detectAll();
+
+        var cap = ArgumentCaptor.forClass(NotificationEvent.class);
+        verify(publisher, atLeastOnce()).publishEvent(cap.capture());
+        var normals = cap.getAllValues().stream()
+                .filter(e -> e.status() == AlertStatus.NORMAL).toList();
+        assertEquals(1, normals.size(), "应有 1 条 NORMAL 事件");
+        assertEquals(Long.valueOf(abnormalStart), normals.get(0).abnormalStartedAt());
+    }
+
+    /// SiteCheckState 行缺失 → 透传 null，监听器侧会用 "—" 兜底
+    @Test
+    void recoveryEvent_siteStateMissing_passesNullAbnormalStartedAt() {
+        var s = site(1L);
+        when(siteRepo.findAll()).thenReturn(List.of(s));
+        long abnormalStart = 1_699_999_900_000L;
+        SiteCheckState oldState = stateRow(1L, "AVAILABILITY", "DOWN");
+        oldState.setLastNotifiedAt(abnormalStart);
+        oldState.setUpdatedAt(abnormalStart);
+        when(stateRepo.findByAlertKind(AlertKind.AVAILABILITY)).thenReturn(List.of(oldState));
+        var def = new StubDefinition(AlertKind.AVAILABILITY, Map.of(
+                1L, Set.of(new EvalResult("UP", AlertStatus.NORMAL, "可用性已恢复"))));
+        when(stateRepo.findById(new SiteCheckStateId(1L, "AVAILABILITY", "DOWN")))
+                .thenReturn(Optional.empty());
+
+        svcWith(def).detectAll();
+
+        var cap = ArgumentCaptor.forClass(NotificationEvent.class);
+        verify(publisher, atLeastOnce()).publishEvent(cap.capture());
+        var normals = cap.getAllValues().stream()
+                .filter(e -> e.status() == AlertStatus.NORMAL).toList();
+        assertEquals(1, normals.size());
+        assertNull(normals.get(0).abnormalStartedAt(),
+                "SiteCheckState 缺失时 abnormalStartedAt 应为 null");
+    }
 }

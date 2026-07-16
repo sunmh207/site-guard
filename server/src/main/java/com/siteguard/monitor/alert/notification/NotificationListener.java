@@ -9,6 +9,11 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+
 /// 边沿通知事件监听器：异步落库 + 投递 IM 渠道。
 ///
 /// 流程：
@@ -89,6 +94,9 @@ public class NotificationListener {
     ///
     /// 行间分隔用 markdown 硬换行（`  \n`，两个尾随空格 + 换行）。飞书/钉钉/企微三家 markdown 渲染器
     /// 都会把裸 `\n` 当成 soft break 折叠成空格，必须用硬换行才能保证每段独立成行。
+    ///
+    /// NORMAL（恢复）通知在前 3 段之后再追加第 4 段「**时间**」行：恢复时间点（绝对时间）
+    ///（持续 X 分 Y 秒）。ABNORMAL 通知不追加此行（用户需求范围外）。
     static String formatImText(NotificationEvent ev) {
         /// 飞书/钉钉/企微 markdown 硬换行：两个尾随空格 + \n，裸 \n 在渲染时会被折成空格
         final String HARD_BREAK = "  \n";
@@ -116,7 +124,33 @@ public class NotificationListener {
         }
         sb.append(HARD_BREAK).append("**消息**：").append(body);
 
+        /// 仅 NORMAL（恢复）通知拼接第 4 段「**时间**」行：恢复时间点 +（持续 X）。
+        /// abnormalStartedAt 为 null 时 computeDurationMs 透传 null，DurationFormatter 兜底为 "—"
+        if (ev.status() == AlertStatus.NORMAL) {
+            String recoveredAt = formatAbsoluteTime(ev.detectedAt());
+            String duration = DurationFormatter.format(computeDurationMs(ev));
+            sb.append(HARD_BREAK).append("**时间**：")
+              .append(recoveredAt)
+              .append("（持续 ").append(duration).append("）");
+        }
+
         return sb.toString();
+    }
+
+    /// 绝对时间戳 → "yyyy-MM-dd HH:mm:ss"，使用 server 默认时区。
+    /// 刻意不用相对时间（"刚刚/X 分钟前"）——frozen-page 语境下相对时间会撒谎
+    ///（与项目历史教训一致）
+    private static String formatAbsoluteTime(long epochMs) {
+        return LocalDateTime
+                .ofInstant(Instant.ofEpochMilli(epochMs), ZoneId.systemDefault())
+                .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+    }
+
+    /// durationMs = detectedAt - abnormalStartedAt；
+    /// abnormalStartedAt 为 null 时返回 null，透传给下游 DurationFormatter 兜底为 "—"
+    private static Long computeDurationMs(NotificationEvent ev) {
+        Long started = ev.abnormalStartedAt();
+        return started == null ? null : ev.detectedAt() - started;
     }
 
     private static String truncate(String s, int max) {

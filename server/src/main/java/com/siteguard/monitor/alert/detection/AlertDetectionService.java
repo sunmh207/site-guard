@@ -130,29 +130,46 @@ public class AlertDetectionService {
                     if (er.status() == AlertStatus.NORMAL) {
                         // 跳过事件；state 仍由下方 step 5 写
                     } else {
-                        publish(site, kind, er.status(), bucket, er.message());
+                        publish(site, kind, er.status(), bucket, er.message(), null);
                     }
                 }
 
                 // 4) 消失 → 仅当"彻底恢复"才发 NORMAL；非 PATH_CHECK 在 ABNORMAL→ABNORMAL 级变时静默
                 for (String bucket : disappeared) {
+                    String msg;
                     if (kind == AlertKind.PATH_CHECK) {
                         /// PATH_CHECK 恢复消息带上 rule 的 expected_http_status；
                         /// rule 在异常期间被删则降级为不带期望码，避免强造状态码误导运维
-                        String msg = pathRuleRepo.findBySiteIdAndPath(site.getId(), bucket)
+                        msg = pathRuleRepo.findBySiteIdAndPath(site.getId(), bucket)
                                 .map(SitePathRule::getExpectedHttpStatus)
                                 .map(expected -> "子路由 `" + bucket + "` 已恢复（期望 " + expected + "）")
                                 .orElse("子路由 `" + bucket + "` 已恢复");
-                        publish(site, kind, AlertStatus.NORMAL, bucket, msg);
                     } else if (!newHasAnyAbnormal && !newBuckets.isEmpty()) {
                         /// 守卫 !newBuckets.isEmpty()：避免检测器"暂无可发事件"被误读为"已恢复"。
                         /// 触发场景：AVAILABILITY 的 counter < threshold 累计中、证书/域名尚未探测到 expiresAt
                         /// 等返回空集的情况。这些场景不是真正的恢复，而是"还在观察"，发 NORMAL 会让抖动场景
                         /// 反复触发误报（用户报告的"多个恢复通知无前置异常"）。
-                        publish(site, kind, AlertStatus.NORMAL, bucket,
-                                Alert.recoveryMessage(kind));
+                        msg = Alert.recoveryMessage(kind);
+                    } else {
+                        /// 级变静默或检测器判定"暂无可发事件"时不读 SiteCheckState，
+                        /// 避免给监听器一个误导性的持续时长。
+                        continue;
                     }
-                    // else: 级变静默 或 检测器判定"暂无可发事件"静默
+
+                    /// DB 抖动时降级为 null，让监听器侧用 "—" 兜底，恢复消息本身不阻断。
+                    Long abnormalStartedAt;
+                    try {
+                        abnormalStartedAt = stateRepo.findById(
+                                        new SiteCheckStateId(site.getId(), kind.name(), bucket))
+                                .map(SiteCheckState::getLastNotifiedAt)
+                                .orElse(null);
+                    } catch (RuntimeException e) {
+                        log.warn("reading SiteCheckState for recovery event failed: site={} kind={} bucket={}",
+                                site.getId(), kind, bucket, e);
+                        abnormalStartedAt = null;
+                    }
+
+                    publish(site, kind, AlertStatus.NORMAL, bucket, msg, abnormalStartedAt);
                 }
 
                 // 5) 写状态：DELETE 消失的行 + INSERT / UPDATE 新增的行
@@ -173,10 +190,10 @@ public class AlertDetectionService {
     }
 
     private void publish(Site site, AlertKind kind, AlertStatus status,
-                         String bucket, String message) {
+                         String bucket, String message, Long abnormalStartedAt) {
         publisher.publishEvent(new NotificationEvent(
                 site.getId(), site.getName(), site.getUrl(),
-                kind, status, bucket, message, clock.millis()));
+                kind, status, bucket, message, clock.millis(), abnormalStartedAt));
     }
 
     private SiteCheckState toRow(Long siteId, AlertKind kind, EvalResult er) {

@@ -22,6 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -60,21 +61,29 @@ class NotificationListenerTest {
         return new NotificationEvent(
                 1L, "官网", "https://example.com",
                 AlertKind.AVAILABILITY, AlertStatus.ABNORMAL,
-                bucket, "msg-" + bucket, 1_700_000_000_000L);
+                bucket, "msg-" + bucket, 1_700_000_000_000L, null);
     }
 
     private NotificationEvent eventWithSite(String bucket, String siteName, String siteUrl) {
         return new NotificationEvent(
                 1L, siteName, siteUrl,
                 AlertKind.AVAILABILITY, AlertStatus.ABNORMAL,
-                bucket, "msg-" + bucket, 1_700_000_000_000L);
+                bucket, "msg-" + bucket, 1_700_000_000_000L, null);
     }
 
     private NotificationEvent eventWithStatus(AlertStatus status, String bucket) {
         return new NotificationEvent(
                 1L, "官网", "https://example.com",
                 AlertKind.AVAILABILITY, status,
-                bucket, "msg-" + bucket, 1_700_000_000_000L);
+                bucket, "msg-" + bucket, 1_700_000_000_000L, null);
+    }
+
+    private NotificationEvent eventWithStatusAndTimes(
+            AlertStatus status, String bucket, long detectedAt, Long abnormalStartedAt) {
+        return new NotificationEvent(
+                1L, "官网", "https://example.com",
+                AlertKind.AVAILABILITY, status,
+                bucket, "msg-" + bucket, detectedAt, abnormalStartedAt);
     }
 
     @Test
@@ -176,8 +185,85 @@ class NotificationListenerTest {
 
         listener.onNotification(eventWithStatus(AlertStatus.NORMAL, "UP"));
 
+        /// ABNORMAL 默认工厂 `eventWithStatus` 没传 abnormalStartedAt，
+        /// 透传后 computeDurationMs 返回 null → "持续 —"。
+        /// NORMAL 消息 4 段：图标+名称 / **网址** / **消息** / **时间**
         verify(notifyService).send("✅ 恢复通知",
-                "✅ 官网  \n**网址**：https://example.com  \n**消息**：msg-UP");
+                "✅ 官网  \n**网址**：https://example.com  \n**消息**：msg-UP"
+                + "  \n**时间**："
+                + java.time.LocalDateTime.ofInstant(
+                        java.time.Instant.ofEpochMilli(1_700_000_000_000L),
+                        java.time.ZoneId.systemDefault())
+                    .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
+                + "（持续 —）");
+    }
+
+    /// NORMAL 恢复通知：在「消息」行之后追加「**时间**：...（持续 X）」
+    ///   detectedAt=1_700_000_000_000L（差 60_000 ms = 1 分）
+    @Test
+    void normalStatus_includesTimeLine_recoveredAtAndDuration() {
+        resetSnapshots();
+
+        listener.onNotification(eventWithStatusAndTimes(
+                AlertStatus.NORMAL, "UP",
+                1_700_000_000_000L, 1_699_999_940_000L));
+
+        String expectedTime = expectedTimeLine(1_700_000_000_000L, "1 分 00 秒");
+        verify(notifyService).send(eq("✅ 恢复通知"), argThat((String m) ->
+                m.contains(expectedTime)
+                        && m.contains("**消息**：msg-UP")
+                        && m.contains("**网址**：https://example.com")));
+    }
+
+    @Test
+    void normalStatus_abnormalStartedAtNull_rendersDash() {
+        resetSnapshots();
+
+        listener.onNotification(eventWithStatusAndTimes(
+                AlertStatus.NORMAL, "UP",
+                1_700_000_000_000L, null));
+
+        verify(notifyService).send(eq("✅ 恢复通知"), argThat((String m) ->
+                m.contains("持续 —")));
+    }
+
+    /// ABNORMAL 通知不带「**时间**」行（用户需求范围外）
+    @Test
+    void abnormalStatus_excludesTimeLine() {
+        resetSnapshots();
+
+        listener.onNotification(eventWithStatusAndTimes(
+                AlertStatus.ABNORMAL, "DOWN",
+                1_700_000_000_000L, null));
+
+        verify(notifyService).send(eq("⚠️ 告警通知"), argThat((String m) ->
+                !m.contains("**时间**")));
+    }
+
+    /// PATH_CHECK 恢复通知也带「**时间**」行
+    @Test
+    void formatImText_pathCheck_recovery_includesTimeLine() {
+        var ev = new NotificationEvent(
+                1L, "shop", "https://shop.example",
+                AlertKind.PATH_CHECK, AlertStatus.NORMAL,
+                "/api/orders",
+                "子路由 `/api/orders` 已恢复（期望 200）",
+                1_700_000_000_000L,
+                1_699_999_940_000L);
+        String text = NotificationListener.formatImText(ev);
+
+        assertTrue(text.contains("**时间**："), "got: " + text);
+        assertTrue(text.contains("持续 1 分 00 秒"), "got: " + text);
+    }
+
+    /// 测试 helper：算出当前 server 默认时区下的「**时间**：...（持续 X）」片段。
+    /// 避免在不同 server 时区上跑测试时逐字比较时间戳导致 flaky。
+    private static String expectedTimeLine(long detectedAt, String durationText) {
+        String recoveredAt = java.time.LocalDateTime
+                .ofInstant(java.time.Instant.ofEpochMilli(detectedAt),
+                           java.time.ZoneId.systemDefault())
+                .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+        return "**时间**：" + recoveredAt + "（持续 " + durationText + "）";
     }
 
     /// 名称与 URL 同时存在 → 名称独占首行，URL 走"**网址**："标签行；行间硬换行
@@ -250,7 +336,7 @@ class NotificationListenerTest {
         resetSnapshots();
 
         var ev = new NotificationEvent(1L, null, null,
-                AlertKind.AVAILABILITY, AlertStatus.ABNORMAL, "UP", "msg-UP", 1_700_000_000_000L);
+                AlertKind.AVAILABILITY, AlertStatus.ABNORMAL, "UP", "msg-UP", 1_700_000_000_000L, null);
         listener.onNotification(ev);
 
         verify(notifyService).send("⚠️ 告警通知", "⚠️  \n**消息**：msg-UP");
@@ -263,7 +349,7 @@ class NotificationListenerTest {
                 AlertKind.PATH_CHECK, AlertStatus.ABNORMAL,
                 "/api/orders",                              // bucket = pathKey
                 "路径 /api/orders 返回 500，期望 200",
-                1700000000000L);
+                1700000000000L, null);
         String text = NotificationListener.formatImText(ev);
         /// PATH_CHECK 的 message 体内已含路径（ABNORMAL: 路径 X...；NORMAL: 子路由 X...），
         /// 不再追加 `（路径：bucket）` hint 以免与 message 内容重复
@@ -277,7 +363,7 @@ class NotificationListenerTest {
                 1L, "shop", "https://shop.example",
                 AlertKind.AVAILABILITY, AlertStatus.ABNORMAL,
                 "DOWN", "HTTP 500",
-                1700000000000L);
+                1700000000000L, null);
         String text = NotificationListener.formatImText(ev);
         assertFalse(text.contains("（路径："), "got: " + text);
     }

@@ -9,6 +9,10 @@ import com.siteguard.monitor.alert.AlertStatus;
 /// @Async @EventListener 监听器消费此事件，异步落库 + 投递 IM。
 ///
 /// 携带站点上下文 (siteName / siteUrl) 让监听器在拼装 IM 文本时无需再次查库。
+///
+/// abnormalStartedAt 仅 NORMAL（恢复）事件携带，表示异常开始时间（epoch ms），
+/// 由 AlertDetectionService 从 SiteCheckState.lastNotifiedAt 读出后透传；
+/// ABNORMAL 事件与 SiteCheckState 缺失场景传 null。
 public record NotificationEvent(
         Long siteId,
         String siteName,
@@ -17,5 +21,6 @@ public record NotificationEvent(
         AlertStatus status,
         String bucket,
         String message,
-        long detectedAt
+        long detectedAt,
+        Long abnormalStartedAt
 ) {}
