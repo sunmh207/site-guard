@@ -13,6 +13,7 @@ import { computed } from 'vue'
 import NotificationSettingCard from '~/features/notification-setting/components/NotificationSettingCard.vue'
 import OpenDashboardSettingCard from '~/features/open-dashboard-setting/components/OpenDashboardSettingCard.vue'
 import AlertConfirmSettingCard from '~/features/alert-confirm-setting/components/AlertConfirmSettingCard.vue'
+import ScheduledReportSettingCard from '~/features/scheduled-report-setting/components/ScheduledReportSettingCard.vue'
 import AboutCard from '~/features/about/components/AboutCard.vue'
 
 definePageMeta({
@@ -58,6 +59,9 @@ const tabItems = [
           <NotificationSettingCard />
           <div class="mt-4">
             <AlertConfirmSettingCard />
+          </div>
+          <div class="mt-4">
+            <ScheduledReportSettingCard />
           </div>
         </template>
         <template #display>

@@ -24,7 +24,12 @@ public enum ConfigKey {
     /// 公开大屏开关：默认 false（关闭）；为 true 时 /api/v1/open/site/stats/dashboard 才返回数据。
     /// OpenDashboardController 自身读取这个 key 做访问闸门，避免「无开关、内网即可访问」的隐式行为。
     /// 用 Boolean 而不是 String 是个有意区分：拒绝"open_dashboard=1/0/yes/no"这类模糊语义。
-    OPEN_DASHBOARD("open_dashboard", Boolean.class);
+    OPEN_DASHBOARD("open_dashboard", Boolean.class),
+
+    /// 定时发送报告配置：每日定时把 dashboard 快照（摘要 + 异常列表）推送到已配置的通知机器人。
+    /// 默认不启用（enabled=false）；time 默认 "08:00"。启用前提：NOTIFICATION 已配置且 enabled=true。
+    /// 调度器 ScheduledReportScheduler 每分钟检查一次是否到点、是否今日已发。
+    SCHEDULED_REPORT("scheduled_report", com.siteguard.system.config.ScheduledReportConfig.class);
 
     @Getter
     private final String key;
