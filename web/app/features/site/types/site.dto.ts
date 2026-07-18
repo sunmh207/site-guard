@@ -42,6 +42,12 @@ export interface SiteDto {
   updatedAt: number
   /// 站点级连续失败阈值覆盖；null = 走全局默认（详见 alert-confirm-setting）
   consecutiveFailuresBeforeAlert?: number | null
+  /// 是否放过证书链不完整（PKIX path building failed）。默认 false。
+  certForgiveChainIncomplete?: boolean
+  /// 是否放过域名不匹配（证书 SAN/CN 与访问 host 不一致）。默认 false。
+  certForgiveDomainMismatch?: boolean
+  /// 是否放过自签证书（issuer DN == subject DN）。默认 false。
+  certForgiveSelfSigned?: boolean
 }
 
 /// 创建入参
@@ -52,6 +58,12 @@ export interface SiteCreateParams {
   categoryId?: number
   /// 站点级连续失败阈值覆盖；null/省略 = 走全局默认
   consecutiveFailuresBeforeAlert?: number | null
+  /// 是否放过证书链不完整；省略 = 走全局默认 false
+  certForgiveChainIncomplete?: boolean
+  /// 是否放过域名不匹配；省略 = 走全局默认 false
+  certForgiveDomainMismatch?: boolean
+  /// 是否放过自签证书；省略 = 走全局默认 false
+  certForgiveSelfSigned?: boolean
 }
 
 /// 更新入参（包含 ID 标识）
@@ -63,6 +75,12 @@ export interface SiteUpdateParams {
   categoryId?: number
   /// 站点级连续失败阈值覆盖；null = 走全局默认；undefined = 不变更
   consecutiveFailuresBeforeAlert?: number | null
+  /// 是否放过证书链不完整；null = 不修改
+  certForgiveChainIncomplete?: boolean | null
+  /// 是否放过域名不匹配；null = 不修改
+  certForgiveDomainMismatch?: boolean | null
+  /// 是否放过自签证书；null = 不修改
+  certForgiveSelfSigned?: boolean | null
 }
 
 /// 搜索条件（不含分页字段，分页由 useSearchPagination 注入）

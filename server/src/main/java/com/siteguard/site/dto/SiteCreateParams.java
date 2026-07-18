@@ -32,4 +32,16 @@ public class SiteCreateParams {
     @Min(1)
     @Schema(description = "站点级连续失败阈值覆盖；null 表示沿用全局默认", nullable = true, minimum = "1")
     private Integer consecutiveFailuresBeforeAlert;
+
+    /// 是否放过证书链不完整（PKIX path building failed）。默认 false。strict 握手失败且 trust-all 重连成功时生效。
+    @Schema(description = "是否放过证书链不完整（PKIX path building failed）", defaultValue = "false", example = "false")
+    private Boolean certForgiveChainIncomplete;
+
+    /// 是否放过域名不匹配（证书 SAN/CN 与 host 不一致）。默认 false。strict 握手失败且 trust-all 重连成功时生效。
+    @Schema(description = "是否放行域名不匹配", defaultValue = "false", example = "false")
+    private Boolean certForgiveDomainMismatch;
+
+    /// 是否放过自签证书（issuer DN == subject DN）。默认 false。strict 握手失败且 trust-all 重连成功时生效。
+    @Schema(description = "是否放行自签证书", defaultValue = "false", example = "false")
+    private Boolean certForgiveSelfSigned;
 }

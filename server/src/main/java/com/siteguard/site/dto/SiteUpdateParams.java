@@ -38,4 +38,19 @@ public class SiteUpdateParams {
     @Min(1)
     @Schema(description = "站点级连续失败阈值覆盖；null 表示沿用全局默认", nullable = true, minimum = "1")
     private Integer consecutiveFailuresBeforeAlert;
+
+    /// 是否放过证书链不完整（PKIX path building failed）。strict 握手失败且 trust-all 重连成功时生效。
+    /// null = 不传则不改（PATCH 语义）；true/false = 显式设置。
+    @Schema(description = "是否放过证书链不完整；null 表示不修改", nullable = true, example = "false")
+    private Boolean certForgiveChainIncomplete;
+
+    /// 是否放过域名不匹配（证书 SAN/CN 与 host 不一致）。strict 握手失败且 trust-all 重连成功时生效。
+    /// null = 不传则不改（PATCH 语义）；true/false = 显式设置。
+    @Schema(description = "是否放行域名不匹配；null 表示不修改", nullable = true, example = "false")
+    private Boolean certForgiveDomainMismatch;
+
+    /// 是否放过自签证书（issuer DN == subject DN）。strict 握手失败且 trust-all 重连成功时生效。
+    /// null = 不传则不改（PATCH 语义）；true/false = 显式设置。
+    @Schema(description = "是否放行自签证书；null 表示不修改", nullable = true, example = "false")
+    private Boolean certForgiveSelfSigned;
 }

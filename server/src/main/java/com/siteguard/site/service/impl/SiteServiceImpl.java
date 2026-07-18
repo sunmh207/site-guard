@@ -8,6 +8,8 @@ import com.siteguard.site.dto.SiteCreateParams;
 import com.siteguard.site.dto.SiteDTO;
 import com.siteguard.site.dto.SiteSearchParams;
 import com.siteguard.site.dto.SiteUpdateParams;
+import com.siteguard.monitor.probe.CertForgive;
+import com.siteguard.monitor.probe.CertForgiveType;
 import com.siteguard.site.entity.QSite;
 import com.siteguard.site.entity.Site;
 import com.siteguard.site.entity.SiteStatus;
@@ -17,6 +19,7 @@ import com.siteguard.site.service.SiteService;
 import com.querydsl.core.BooleanBuilder;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.jspecify.annotations.NonNull;
 import org.springframework.data.domain.Page;
@@ -24,6 +27,7 @@ import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
 
@@ -65,6 +69,9 @@ public class SiteServiceImpl implements SiteService {
         site.setAvailabilityStatus(SiteStatus.UNKNOWN);
         // 站点级连续失败阈值覆盖；null 表示沿用全局默认
         site.setConsecutiveFailuresBeforeAlert(params.getConsecutiveFailuresBeforeAlert());
+        // 证书校验分级放行：把 3 个开关拼成 JSON 数组
+        site.setCertForgive(resolveCertForgiveJson(params.getCertForgiveChainIncomplete(),
+                params.getCertForgiveDomainMismatch(), params.getCertForgiveSelfSigned()));
         repo.save(site);
         return mapper.toDTO(site);
     }
@@ -90,6 +97,13 @@ public class SiteServiceImpl implements SiteService {
         }
         // 站点级连续失败阈值覆盖；null 表示沿用全局默认（前端编辑表单可主动清空字段）
         site.setConsecutiveFailuresBeforeAlert(params.getConsecutiveFailuresBeforeAlert());
+        // 证书校验分级放行：只要任意一个开关字段非 null 就整体重建；全 null = 不改当前集合
+        if (params.getCertForgiveChainIncomplete() != null
+                || params.getCertForgiveDomainMismatch() != null
+                || params.getCertForgiveSelfSigned() != null) {
+            site.setCertForgive(resolveCertForgiveJson(params.getCertForgiveChainIncomplete(),
+                    params.getCertForgiveDomainMismatch(), params.getCertForgiveSelfSigned()));
+        }
         repo.save(site);
         return mapper.toDTO(site);
     }
@@ -119,6 +133,16 @@ public class SiteServiceImpl implements SiteService {
         var site = repo.findById(id)
                 .orElseThrow(() -> Errors.NOT_FOUND.toException("站点不存在 (ID: {})", id));
         return mapper.toDTO(site);
+    }
+
+    /// 把前端传来的 3 个开关（可为 null = 不参与）拼成 site.cert_forgive JSON 字符串数组。
+    /// 仅当 Boolean.TRUE 时纳入枚举值；null / false 均视为"不放"。
+    private String resolveCertForgiveJson(Boolean chain, Boolean domain, Boolean selfSigned) {
+        EnumSet<CertForgiveType> types = EnumSet.noneOf(CertForgiveType.class);
+        if (Boolean.TRUE.equals(chain))      types.add(CertForgiveType.CHAIN_INCOMPLETE);
+        if (Boolean.TRUE.equals(domain))     types.add(CertForgiveType.DOMAIN_MISMATCH);
+        if (Boolean.TRUE.equals(selfSigned)) types.add(CertForgiveType.SELF_SIGNED);
+        return CertForgive.json(types);
     }
 
     @Override

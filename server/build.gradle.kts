@@ -77,6 +77,10 @@ dependencies {
 	// H2 支持 MySQL 兼容模式以减少 Flyway 迁移中的方言差异
 	testRuntimeOnly("com.h2database:h2")
 	testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+
+	// BouncyCastle 测试用：运行时生成各种异常证书（过期/自签/域名不匹配/链不完整）覆盖 lenient 分级判定
+	testImplementation("org.bouncycastle:bcpkix-jdk18on:1.78.1")
+	testRuntimeOnly("org.bouncycastle:bcprov-jdk18on:1.78.1")
 }
 
 tasks.withType<Test> {

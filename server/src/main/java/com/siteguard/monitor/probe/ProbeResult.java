@@ -27,6 +27,18 @@ public record ProbeResult(
         return new ProbeResult(CheckStatus.UP, httpStatus, responseMs, null, certExpiresAt, certIssuer);
     }
 
+    /// 证书过期专用：status 仍为 ERROR（站点不可用），但携带 certExpiresAt / certIssuer
+    /// 让 SiteCheckServiceImpl 能写入这些值，触发 CertExpiryAlertDefinition 的"证书已过期"告警。
+    ///
+    /// 与其他 error() 不同：过期不是"宕机"，但本系统视过期为 ABNORMAL；lenient 路径永远走本工厂，
+    /// 不可被任何 cert_forgive 开关放过——过期判定在分类之前就返回了。
+    public static ProbeResult expired(String message, HttpSiteProbe.CertInfo certInfo) {
+        Long expiresAt = (certInfo != null) ? certInfo.expiresAt() : null;
+        String issuer = (certInfo != null) ? certInfo.issuer() : null;
+        return new ProbeResult(CheckStatus.ERROR, null, null,
+                "CERT_EXPIRED: " + truncate(message), expiresAt, issuer);
+    }
+
     public static ProbeResult down(int httpStatus, int responseMs) {
         return new ProbeResult(CheckStatus.DOWN, httpStatus, responseMs, null, null, null);
     }

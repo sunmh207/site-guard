@@ -54,4 +54,16 @@ public class SiteDTO {
     /// 站点级连续失败阈值覆盖；null 表示沿用全局默认
     @Schema(description = "站点级连续失败阈值覆盖；null 表示沿用全局默认", nullable = true)
     private Integer consecutiveFailuresBeforeAlert;
+
+    /// 是否放过证书链不完整（PKIX path building failed）。默认 false。
+    @Schema(description = "是否放过证书链不完整；strict 握手失败且 trust-all 重连成功时生效", example = "false")
+    private boolean certForgiveChainIncomplete;
+
+    /// 是否放过域名不匹配（SAN/CN 与 host 不一致）。默认 false。
+    @Schema(description = "是否放过域名不匹配；strict 握手失败且 trust-all 重连成功时生效", example = "false")
+    private boolean certForgiveDomainMismatch;
+
+    /// 是否放过自签证书（issuer DN == subject DN）。默认 false。
+    @Schema(description = "是否放过自签证书；strict 握手失败且 trust-all 重连成功时生效", example = "false")
+    private boolean certForgiveSelfSigned;
 }

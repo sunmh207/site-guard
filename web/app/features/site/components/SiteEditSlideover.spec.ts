@@ -41,6 +41,9 @@ const stubs = {
   UFormField: true,
   USelectMenu: true,
   USlideover: true,
+  // Nuxt UI v4 开关组件是 USwitch（不是 v3 的 UToggle）；本抽屉用 UAccordion 折叠证书降级开关
+  USwitch: true,
+  UAccordion: true,
 }
 
 describe('SiteEditSlideover - prefill', () => {

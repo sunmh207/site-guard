@@ -47,6 +47,11 @@ const formCategoryId = ref<number | null>(null)
 /// 连续失败阈值表单值；用字符串以便区分"未填(null)"与"已填数字"
 /// 编辑模式下从 props.site.consecutiveFailuresBeforeAlert 读取；创建模式无现有值，留 null
 const formConsecutiveFailuresBeforeAlert = ref<number | null>(null)
+/// 证书校验分级放行开关：站点级覆盖，三种失败类型独立配置；"放过"表示该类型握手失败不触发可用性告警。
+/// null = 新建模式（默认 false，沿用未配置）；编辑模式读取站点当前值。
+const formCertForgiveChainIncomplete = ref<boolean | null>(null)
+const formCertForgiveDomainMismatch = ref<boolean | null>(null)
+const formCertForgiveSelfSigned = ref<boolean | null>(null)
 const formError = ref<string | null>(null)
 
 /// 抽屉打开时根据模式填充表单
@@ -59,6 +64,10 @@ watch(open, (v) => {
     formCategoryId.value = props.site.categoryId
     /// 编辑模式：直接读取实体上的阈值（null/undefined 都视作"使用全局默认"）
     formConsecutiveFailuresBeforeAlert.value = props.site.consecutiveFailuresBeforeAlert ?? null
+    /// 编辑模式：直接读取站点级证书分级放行开关
+    formCertForgiveChainIncomplete.value = props.site.certForgiveChainIncomplete ?? false
+    formCertForgiveDomainMismatch.value = props.site.certForgiveDomainMismatch ?? false
+    formCertForgiveSelfSigned.value = props.site.certForgiveSelfSigned ?? false
   }
   else {
     if (props.prefill) {
@@ -73,8 +82,11 @@ watch(open, (v) => {
       /// 创建模式回退到父页传入的默认分类（典型为 useCategoryTree 的首个分类）
       formCategoryId.value = props.defaultCategoryId
     }
-    /// 创建模式：阈值表单回到 null（= 不设置，走全局默认）
+    /// 创建模式：阈值 / 证书开关均回到默认（= 不设置 / false，走全局默认）
     formConsecutiveFailuresBeforeAlert.value = null
+    formCertForgiveChainIncomplete.value = false
+    formCertForgiveDomainMismatch.value = false
+    formCertForgiveSelfSigned.value = false
   }
   formError.value = null
 }, { immediate: true })
@@ -119,6 +131,10 @@ async function handleSave() {
         categoryId: formCategoryId.value!,
         /// null/undefined 都表示"走全局默认"，后端 Service 会视情况回写 null
         consecutiveFailuresBeforeAlert: formConsecutiveFailuresBeforeAlert.value,
+        /// 证书校验分级放行：新建时显式传开关值；省略亦可（后端默认 false）
+        certForgiveChainIncomplete: formCertForgiveChainIncomplete.value ?? false,
+        certForgiveDomainMismatch: formCertForgiveDomainMismatch.value ?? false,
+        certForgiveSelfSigned: formCertForgiveSelfSigned.value ?? false,
       })
       message.success('站点已创建')
     }
@@ -131,6 +147,10 @@ async function handleSave() {
         url: formUrl.value.trim(),
         categoryId: formCategoryId.value!,
         consecutiveFailuresBeforeAlert: formConsecutiveFailuresBeforeAlert.value,
+        ///  PATCH 语义：null = 不动当前集合；显式 true/false 参与重算
+        certForgiveChainIncomplete: formCertForgiveChainIncomplete.value,
+        certForgiveDomainMismatch: formCertForgiveDomainMismatch.value,
+        certForgiveSelfSigned: formCertForgiveSelfSigned.value,
       })
       message.success('站点已更新')
     }
@@ -188,6 +208,7 @@ async function handleSave() {
             :items="categoryOptions"
             value-key="value"
             placeholder="请选择分类"
+            class="w-full"
             :disabled="loading"
           />
         </UFormField>
@@ -224,6 +245,57 @@ async function handleSave() {
           子路由检测已迁移到列表下拉菜单触发的独立 SitePathRuleSlideover，
           不再在本抽屉内嵌；详见 web/app/features/site-path-rule/components/SitePathRuleSlideover.vue
         -->
+        <!--
+          证书校验降级：站点级"放过"钩子。（Collapse By Default）
+          目的：屏蔽不影响站点真实可用性的证书异常告警，默认不展开以免分散用户注意力；
+          当站点偶发 SSLHandshakeException（链不完整 / 域名错配 / 自签）时，由用户主动展开并勾选。
+          "证书过期"永不过期开关——由 CertExpiryAlertDefinition 独立告警。
+          三个开关语义独立：
+            - 放行链不完整：服务器未发送中间 CA，浏览器通常能自动补链但 JDK 直接报错。
+            - 放行域名不匹配：证书 SAN/CN 与访问 host 不一致（多域名共用、内网 IP 直连）。
+            - 放行自签：issuer DN == subject DN（内部系统 / 测试环境）。
+        -->
+        <!--
+          折叠：无 default-value 即默认收起；点击标题展开（展开后才见三个开关）。
+          collapsible 可单选；同时仅一个面板可开。
+        -->
+        <UAccordion
+          :items="[{ label: '站点证书放行规则', icon: 'i-lucide-shield-close', value: 'cert-forgive', slot: 'cert-forgive' }]"
+          :ui="{ trigger: 'text-sm font-normal', label: 'font-normal', content: 'pt-2 pb-0' }"
+        >
+          <!-- 证书校验开关：默认折叠；展开时显示三类放行选项；"证书过期"不参与，由 CertExpiryAlertDefinition 独立告警 -->
+          <template #cert-forgive="{ open }">
+            <div class="space-y-4">
+              <USwitch
+                v-model="formCertForgiveChainIncomplete"
+                name="certForgiveChainIncomplete"
+                label="放行链不完整"
+                hint="服务器未发送中间 CA，浏览器通常能自动补链但 JDK 报错（PKIX path building failed）。"
+                :disabled="loading"
+                :ui="{ label: 'font-normal' }"
+              />
+              <USwitch
+                v-model="formCertForgiveDomainMismatch"
+                name="certForgiveDomainMismatch"
+                label="放行域名不匹配"
+                hint="证书 SAN/CN 与访问 host 不一致（多域名共用证书或内网按 IP 直连）。"
+                :disabled="loading"
+                :ui="{ label: 'font-normal' }"
+              />
+              <USwitch
+                v-model="formCertForgiveSelfSigned"
+                name="certForgiveSelfSigned"
+                label="放行自签证书"
+                hint="issuer DN == subject DN 的自签证书（内部系统 / 测试环境），浏览器会启锁、JDK 会拒绝握手。"
+                :disabled="loading"
+                :ui="{ label: 'font-normal' }"
+              />
+              <p v-if="open" class="text-xs text-muted !mt-0">
+                以上选项仅在「站点能连上但证书报错」时告警静默；不影响站点宕机 / 500 等真实可用性告警，也不会延迟证书过期告警。
+              </p>
+            </div>
+          </template>
+        </UAccordion>
         <div v-if="formError" class="text-sm text-error">
           {{ formError }}
         </div>

@@ -1,6 +1,8 @@
 package com.siteguard.site.entity;
 
 import com.siteguard.common.persistent.BaseEntity;
+import com.siteguard.monitor.probe.CertForgive;
+import com.siteguard.monitor.probe.CertForgiveType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -10,6 +12,8 @@ import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.ToString;
+
+import java.util.Set;
 
 /// 被监控站点实体
 ///
@@ -68,4 +72,43 @@ public class Site extends BaseEntity {
     /// 默认 0；首次 DOWN 后为 1；持续 DOWN 累加；int 足以承载实际场景
     @Column(name = "consecutive_availability_failures", nullable = false)
     private int consecutiveAvailabilityFailures;
+
+    /// 证书校验失败分级放行集合，JSON 字符串数组。
+    ///
+    /// 含义：JDK strict 握手失败 + trust-all 重连成功时，仅集合内的失败类型会被"放过"（判 UP）；
+    /// 集合外类型与 trust-all 仍失败两种场景都按 ERROR 处理。
+    ///
+    /// "证书过期" 永远不在此集合中：probe 在校验Validity 阶段直接返回 ERROR，不走本字段判定。
+    ///
+    /// 合法值（null 表示未设置，等价于空集 = 全不放，对齐 JDK 默认严格校验）：
+    /// - null / "[]"                               全不放
+    /// - ["chain_incomplete"]                      仅放链不完整
+    /// - ["chain_incomplete","domain_mismatch"]    放两种
+    /// - ["chain_incomplete","domain_mismatch","self_signed"]  全放（仍不放过期）
+    @Column(name = "cert_forgive")
+    private String certForgive;
+
+    /// 反序列化后的 view。null/空/解析失败 → 空集（严格兜底）。
+    /// 通过 CertForgive.parse 走 CertForgiveType.@JsonCreator，不认识的值静默跳过。
+    public Set<CertForgiveType> getCertForgiveTypes() {
+        return CertForgive.parse(certForgive);
+    }
+
+    /// 三个便捷判定（给 probe 直接调用，描述"这种失败类型是否被放过"）。
+    public boolean isForgiveChainIncomplete() {
+        return getCertForgiveTypes().contains(CertForgiveType.CHAIN_INCOMPLETE);
+    }
+
+    public boolean isForgiveDomainMismatch() {
+        return getCertForgiveTypes().contains(CertForgiveType.DOMAIN_MISMATCH);
+    }
+
+    public boolean isForgiveSelfSigned() {
+        return getCertForgiveTypes().contains(CertForgiveType.SELF_SIGNED);
+    }
+
+    /// 任一类型可放行 = 进入 lenient 路径的资格。probe 的快速预检，避免无开关时创建 trust-all client。
+    public boolean hasAnyCertForgive() {
+        return !getCertForgiveTypes().isEmpty();
+    }
 }

@@ -30,6 +30,10 @@ export const siteCreateSchema = v.object({
   ),
   /// 站点级连续失败阈值覆盖（null/缺失 = 走全局默认）
   consecutiveFailuresBeforeAlert: v.optional(consecutiveFailuresBeforeAlertSchema),
+  /// 证书校验分级放行开关（缺失 = 走全局默认 false）
+  certForgiveChainIncomplete: v.optional(v.boolean()),
+  certForgiveDomainMismatch: v.optional(v.boolean()),
+  certForgiveSelfSigned: v.optional(v.boolean()),
 })
 
 /// 由 schema 推导的表单数据类型
