@@ -291,7 +291,7 @@ public class HttpSiteProbe implements SiteProbe {
     /// 分类 strict 握手失败的真实原因。前置条件：leaf 已通过 checkValidity()（未过期）。
     /// 顺序：域名不匹配 > 自签 > 链不完整（兜底）。
     /// 当证书同时满足"域名不匹配"和"自签"时，域名优先（域名错通常是运维关注点，自签是信任决策）。
-    private CertForgiveType classifyFailure(String host, X509Certificate leaf) {
+    static CertForgiveType classifyFailure(String host, X509Certificate leaf) {
         if (!verifyHostname(host, leaf)) {
             return CertForgiveType.DOMAIN_MISMATCH;
         }

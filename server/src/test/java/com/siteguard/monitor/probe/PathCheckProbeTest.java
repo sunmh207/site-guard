@@ -2,8 +2,12 @@ package com.siteguard.monitor.probe;
 
 import com.siteguard.monitor.entity.SitePathRule;
 import com.siteguard.monitor.repository.SitePathRuleRepository;
+import com.siteguard.monitor.probe.TestCerts.Issued;
 import com.siteguard.site.entity.Site;
+import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import com.sun.net.httpserver.HttpsConfigurator;
+import com.sun.net.httpserver.HttpsServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -12,6 +16,8 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import javax.net.ssl.KeyManagerFactory;
+import javax.net.ssl.SSLContext;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.URI;
@@ -20,6 +26,9 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.net.http.HttpHeaders;
 import java.net.http.HttpTimeoutException;
+import java.security.KeyStore;
+import java.security.cert.X509Certificate;
+import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -407,6 +416,188 @@ class PathCheckProbeTest {
                 return this;
             }
             StubHttpClient build() { return client; }
+        }
+    }
+
+    // ============================================================
+    // HTTPS cert_forgive 测试（path rule）
+    //
+    // 说明：当站点开启 cert_forgive 且 path-rule 走 HTTPS 时：
+    //   - 握手失败且证书类型命中站点开关 → cert_forgiven=true，不计 counter，写 lastErrorMessage="cert_forgiven:<TYPE>"
+    //   - 站点未配置 cert_forgive（默认）→ 走老错误路径，counter 累计
+    //   涵盖 4 类：链不完整 / 域名错配 / 自签 / 过期
+    // ============================================================
+
+    /// 给 Issued(叶子+链+叶子KeyPair+caPrivateKey) 启一个 HttpsServer；注册 /ok 处理器。
+    /// 返回的 handle 用后需要 .stop()。
+    private HttpsHandle startHttps(Issued issued) throws Exception {
+        char[] pw = "changeit".toCharArray();
+        KeyStore ks = KeyStore.getInstance("PKCS12");
+        ks.load(null, null);
+        ks.setKeyEntry("leaf", issued.leafKeyPair().getPrivate(), pw, issued.chain());
+        KeyManagerFactory kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
+        kmf.init(ks, pw);
+        SSLContext ctx = SSLContext.getInstance("TLS");
+        ctx.init(kmf.getKeyManagers(), null, null);
+
+        HttpsServer httpsServer = HttpsServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        httpsServer.setHttpsConfigurator(new HttpsConfigurator(ctx));
+        httpsServer.createContext("/ok", ex -> {
+            ex.sendResponseHeaders(200, -1);
+            ex.close();
+        });
+        httpsServer.start();
+        return new HttpsHandle(httpsServer, "https://127.0.0.1:" + httpsServer.getAddress().getPort());
+    }
+
+    private record HttpsHandle(HttpsServer server, String baseUrl) implements AutoCloseable {
+        void stop() { server.stop(0); }
+        @Override
+        public void close() { stop(); }
+    }
+
+    private Site httpsSite(String url) {
+        var s = new Site();
+        s.setId(1L);
+        s.setName("test-https");
+        s.setUrl(url);
+        return s;
+    }
+
+    private SitePathRule okRule() {
+        var r = new SitePathRule();
+        r.setId(System.nanoTime());
+        r.setSiteId(1L);
+        r.setPath("/ok");
+        r.setExpectedHttpStatus(200);
+        r.setConsecutiveFailures(5);   // 预设累计；断言放行后归零
+        return r;
+    }
+
+    private void setForgive(Site site, CertForgiveType... types) {
+        var set = EnumSet.noneOf(CertForgiveType.class);
+        for (var t : types) set.add(t);
+        site.setCertForgive(CertForgive.json(set));
+    }
+
+    // ----------- 测试用例 ----------------------------------------------------------
+
+    /// 站点开启"链不完整"放行 + HTTPS 签发者不在信任库（严格报 PKIX path building failed）
+    /// → probe 捕获证书判断为 CHAIN_INCOMPLETE，命中开关：放行，counter 归零，lastErrorMessage="cert_forgive:CHAIN_INCOMPLETE"
+    @Test
+    void pathRule_chainIncomplete_forgiven_resetsCounterAndWritesTrace() throws Exception {
+        var issued = TestCerts.issue(365, new String[]{"127.0.0.1"}, "CN=Unknown CA, O=Test Guard Guard");
+        var site = httpsSite(null);
+        try (var h = startHttps(issued)) {
+            site.setUrl(h.baseUrl);
+            setForgive(site, com.siteguard.monitor.probe.CertForgiveType.CHAIN_INCOMPLETE);
+
+            var r = okRule();
+            when(ruleRepo.findBySiteIdOrderByIdAsc(1L)).thenReturn(List.of(r));
+
+            probe.probe(site);
+
+            // 放行：counter 归零、lastErrorMessage 记录放行类型
+            assertEquals(0, r.getConsecutiveFailures(), "forgiven 路径不应累计 counter");
+            assertEquals("cert_forgiven:CHAIN_INCOMPLETE", r.getLastErrorMessage());
+            assertNull(r.getLastHttpStatus(), "未发生真实 HTTP 请求，状态应为 null");
+            verify(ruleRepo).saveAll(argThat(rules -> {
+                var saved = rules.iterator().next();
+                return saved.getConsecutiveFailures() == 0
+                        && "cert_forgiven:CHAIN_INCOMPLETE".equals(saved.getLastErrorMessage());
+            }));
+        }
+    }
+
+    /// 站点未开启 cert_forgive（默认），HTTPS 证书不在信任库 → 严格握手失败走老路径：
+    ///   counter +1，lastErrorMessage 包含 SSLHandshakeException 原文
+    @Test
+    void pathRule_chainIncomplete_noSwitchDefault_incrementsCounter() throws Exception {
+        var issued = TestCerts.issue(365, new String[]{"127.0.0.1"}, "CN=Unknown CA, O=Test Guard Guard");
+        var site = httpsSite(null);  // 默认不配 cert_forgive
+        try (var h = startHttps(issued)) {
+            site.setUrl(h.baseUrl);
+
+            var r = okRule();
+            when(ruleRepo.findBySiteIdOrderByIdAsc(1L)).thenReturn(List.of(r));
+
+            probe.probe(site);
+
+            // 默认无 cert_forgive：严格失败走路径，counter 累加
+            assertEquals(6, r.getConsecutiveFailures(), "默认配置下不应累计 counter");
+            assertNotNull(r.getLastErrorMessage());
+            assertTrue(r.getLastErrorMessage().contains("SSLHandshakeException"),
+                    "默认无开关时错误消息应保留服务器端的握手原文：" + r.getLastErrorMessage());
+        }
+    }
+
+    /// 站点同时只开启"链路不完整" + "域名错配"，证书是自签（issuer DN == subject DN）→ classify 判为 SELF_SIGNED，
+    /// 站点开关不覆盖 → 不计入放行，counter 累计
+    @Test
+    void pathRule_selfSigned_withoutSelfSignedSwitch_incrementsCounter() throws Exception {
+        var issued = TestCerts.issue(365, new String[]{"127.0.0.1"}, null);  // 自签
+        var site = httpsSite(null);
+        try (var h = startHttps(issued)) {
+            site.setUrl(h.baseUrl);
+            setForgive(site, com.siteguard.monitor.probe.CertForgiveType.CHAIN_INCOMPLETE);  // 只放链不完整，不放自签
+
+            var r = okRule();
+            when(ruleRepo.findBySiteIdOrderByIdAsc(1L)).thenReturn(List.of(r));
+
+            probe.probe(site);
+
+            // classifyFailure 判为 SELF_SIGNED，站点未开启此开关 → 不累计归零，继续走老路径
+            assertEquals(6, r.getConsecutiveFailures());
+            assertNotNull(r.getLastErrorMessage());
+            assertTrue(r.getLastErrorMessage().contains("SSLHandshakeException"));
+        }
+    }
+
+    /// 过期证书 —— 站点即便开了所有也不能放行：永远走老错误路径（counter 累计，错误消息不过滤）
+    @Test
+    void pathRule_expired_neverForgiven_incrementsCounter() throws Exception {
+        var issued = TestCerts.issue(-30, new String[]{"127.0.0.1"}, "CN=Unknown CA, O=Test Guard");
+        var site = httpsSite(null);
+        try (var h = startHttps(issued)) {
+            site.setUrl(h.baseUrl);
+            setForgive(site,
+                    com.siteguard.monitor.probe.CertForgiveType.CHAIN_INCOMPLETE,
+                    com.siteguard.monitor.probe.CertForgiveType.DOMAIN_MISMATCH,
+                    com.siteguard.monitor.probe.CertForgiveType.SELF_SIGNED);
+
+            var r = okRule();
+            when(ruleRepo.findBySiteIdOrderByIdAsc(1L)).thenReturn(List.of(r));
+
+            probe.probe(site);
+
+            // 过期永远不放：counter 累计
+            assertEquals(6, r.getConsecutiveFailures());
+            assertNotNull(r.getLastErrorMessage());
+            assertTrue(r.getLastErrorMessage().contains("SSLHandshakeException"));
+        }
+    }
+
+    /// 域名错配（SAN=example.com 连 127.0.0.1） + 站点开启域名错配 → 放行，counter 归零
+    @Test
+    void pathRule_domainMismatch_forgiven_resetsCounterAndWritesTrace() throws Exception {
+        var issued = TestCerts.issue(365, new String[]{"example.com"}, "CN=Unknown CA, O=Test Guard");
+        var site = httpsSite(null);
+        try (var h = startHttps(issued)) {
+            site.setUrl(h.baseUrl);
+            setForgive(site, com.siteguard.monitor.probe.CertForgiveType.DOMAIN_MISMATCH);
+
+            var r = okRule();
+            when(ruleRepo.findBySiteIdOrderByIdAsc(1L)).thenReturn(List.of(r));
+
+            probe.probe(site);
+
+            assertEquals(0, r.getConsecutiveFailures());
+            assertEquals("cert_forgiven:DOMAIN_MISMATCH", r.getLastErrorMessage());
+            verify(ruleRepo).saveAll(argThat(rules -> {
+                var saved = rules.iterator().next();
+                return saved.getConsecutiveFailures() == 0
+                        && "cert_forgiven:DOMAIN_MISMATCH".equals(saved.getLastErrorMessage());
+            }));
         }
     }
 }
