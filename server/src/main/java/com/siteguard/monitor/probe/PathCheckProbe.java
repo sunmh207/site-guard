@@ -12,7 +12,9 @@ import javax.net.ssl.SSLHandshakeException;
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.X509TrustManager;
 import java.io.IOException;
+import java.net.HttpURLConnection;
 import java.net.URI;
+import java.net.URL;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse.BodyHandlers;
@@ -20,6 +22,7 @@ import java.net.http.HttpTimeoutException;
 import java.security.cert.X509Certificate;
 import java.time.Duration;
 import java.util.List;
+import javax.net.ssl.HttpsURLConnection;
 
 /// 站点自定义子路由探测组件。
 ///
@@ -37,12 +40,14 @@ import java.util.List;
 ///   1. 共享 http client 用于 HTTP（仅普通 TLS 校验）；HTTPS 单独建 TLS Client + CapturingTrustManager。
 ///   2. 站点开启任一种 cert_forgive 时，HTTPS 走严格握手 → 失败时捕获对端证书链，按 HttpSiteProbe.classifyFailure
 ///      分类（过期/未生效永远不放，域名错配 / 自签 / 链不完整按站点开关）。
-///   3. 命中某类且站点开启对应开关 → 视为"证书放行"：不清错误计数、不发子路由告警，并记 lastErrorMessage="cert_forgiven:<TYPE>"
-///      以便运维在站点详情里追溯；不累计 consecutive_failures。
-///      否则走老的错误路径：累计 counter / 写错误消息 → 子路由阈值达阈值后告警。
+///   3. 命中某类且站点开启对应开关 → 视为"证书层面放行"：仿 HttpSiteProbe 做一次 trust-all 的 lenient
+///      二次 GET，拿到子路由真实 HTTP 状态码后走普通 writeOutcome（与期望状态码比对 + 累计 counter /
+///      写错误消息）→ 子路由阈值达阈值后告警。
+///      lenient 自身失败（站点真挂了/超时）→ 走错误路径：counter 累计，同样告警。
+///      否则（未命中开关/过期）走老的错误路径：累计 counter / 写错误消息 → 子路由阈值达阈值后告警。
 ///
-/// 注意：cert_forgive 只作用于"握手层面的问题"，不影响状态码不匹配 / 超时 / 站点宕机等真实失败——
-/// 那些失败要让运维知道，因此仍需计数告警。
+/// 注意：cert_forgive 只作用于"握手层面的问题"，拿到真实状态码后状态码不匹配 / 超时 / 站点宕机等真实失败
+/// 仍要让运维知道，因此仍需计数告警。
 @Component
 @Slf4j
 public class PathCheckProbe {
@@ -105,31 +110,16 @@ public class PathCheckProbe {
 
     /// 写入一条路径规则的探测结果 + 维护连续失败计数器。
     ///
-    /// special case — cert_forgive 被命中：我们不清 lastHttpStatus（握手未发生，状态无从得知）也
-    /// 不累计错误（因为站点配置该类型放行），只在 lastErrorMessage 写一条追溯性消息，*同时*把
-    /// lastHttpStatus 置为规则期望值（让 isFailing 在恢复时正常按 success 处理；置 null 也无所谓，
-    /// SitePathRule.isFailing 在 null 判 failure，所以我们走 counter=0 + message 显式说明放行原因）。
+    /// 普通路径（HTTP / 正常 HTTPS 握手成功 / lenient 二次 GET 拿到真实状态码 / 各类失败的错误路径）：
+    /// 写 lastHttpStatus + lastErrorMessage，再按 SitePathRule.isFailing 维护"连续失败次数"计数器：
+    /// - 探测失败（status 不匹配 / 无 status）→ counter +1
+    /// - 探测成功（status 匹配）→ counter 归零
+    /// 失败判定统一用 SitePathRule.isFailing，probe 层与 detector 层口径一致。
     private void writeOutcome(SitePathRule rule, long checkedAt, PathProbeOutcome outcome) {
         rule.setLastCheckedAt(checkedAt);
-
-        if (outcome.certForgiven()) {
-            /// 证书放行：不计失败，只在 message 留追溯痕迹；走 SitePathRule.isFailing(rule) 时不 increment。
-            rule.setLastHttpStatus(null);   // 握手未发生，没有真实状态码
-            rule.setLastErrorMessage("cert_forgiven:" + outcome.certForgivenType());
-            /// 关键：放行时不累计计数器，避免站点级 cert_forgive 配置后路径因不相关的握手问题反复报 PATH_CHECK 异常。
-            rule.setConsecutiveFailures(0);
-            log.debug("path rule {} cert-forgiven {} -> counter reset", rule.getId(), outcome.certForgivenType());
-            return;
-        }
-
-        /// 普通路径（HTTP 或 正常 HTTPS 握手成功/失败的标准路径）
         rule.setLastHttpStatus(outcome.httpStatus());
         rule.setLastErrorMessage(outcome.errorMessage());
 
-        /// 维护"连续失败次数"计数器：
-        /// - 探测失败（status 不匹配 / 无 status）→ counter +1
-        /// - 探测成功（status 匹配）→ counter 归零
-        /// 失败判定统一用 SitePathRule.isFailing，probe 层与 detector 层口径一致。
         boolean failed = SitePathRule.isFailing(rule);
         int currentCounter = rule.getConsecutiveFailures();
         rule.setConsecutiveFailures(failed ? currentCounter + 1 : 0);
@@ -158,24 +148,24 @@ public class PathCheckProbe {
 
         try {
             var resp = client.send(req, BodyHandlers.discarding());
-            return new PathProbeOutcome(resp.statusCode(), null, false, null);
+            return new PathProbeOutcome(resp.statusCode(), null);
         } catch (HttpTimeoutException e) {
-            return new PathProbeOutcome(null, "timeout after 5s", false, null);
+            return new PathProbeOutcome(null, "timeout after 5s");
         } catch (SSLHandshakeException e) {
             /// 仅当 CapturingTrustManager 已启用时做分类（== 站点有配 cert_forgive）；否则直接暴露老错误消息。
             if (captureTm != null) {
-                PathProbeOutcome forgiven = tryForgiveCert(site, uri.getHost(), captureTm, e);
+                PathProbeOutcome forgiven = tryForgiveCert(site, uri, captureTm, e);
                 if (forgiven != null) {
                     return forgiven;
                 }
             }
-            return new PathProbeOutcome(null, truncate("SSLHandshakeException: " + e.getMessage()), false, null);
+            return new PathProbeOutcome(null, truncate("SSLHandshakeException: " + e.getMessage()));
         } catch (IOException | InterruptedException e) {
             if (e instanceof InterruptedException) {
                 Thread.currentThread().interrupt();
             }
             return new PathProbeOutcome(null,
-                    truncate(e.getClass().getSimpleName() + ": " + e.getMessage()), false, null);
+                    truncate(e.getClass().getSimpleName() + ": " + e.getMessage()));
         }
         /// 非预期的 RuntimeException 不在 probeOne 吞——让它向上抛出，
         /// 交由 probe() 的外层 try/catch 捕获并 log warn。in-memory rule 状态
@@ -186,8 +176,9 @@ public class PathCheckProbe {
     /// - leaf 抓不到 → null（按老错误消息处理）
     /// - 过期 / 未生效 → null（永远不放）
     /// - 站点开关未对应分类 → null（配置者未放行此类型，仍按失败处理；错误消息保留 SSL 原文）
-    /// - 站点开关命中 → 返回标记为 "cert_forgiven" 的 PathProbeOutcome，writeOutcome 据此决定放行（不计数、只留追溯消息）
-    private PathProbeOutcome tryForgiveCert(Site site, String host, CapturingTrustManager tm,
+    /// - 站点开关命中 → 仿 HttpSiteProbe 做一次 trust-all 的 lenient 二次 GET，拿到子路由真实 HTTP 状态码后
+    ///   走普通 writeOutcome（与期望状态码比对 + 累计 counter）；lenient 自身失败（站点真挂了/超时）→ 按错误路径处理。
+    private PathProbeOutcome tryForgiveCert(Site site, URI uri, CapturingTrustManager tm,
                                             SSLHandshakeException handshakeException) {
         try {
             var chain = tm.getCapturedChain();
@@ -195,6 +186,7 @@ public class PathCheckProbe {
                 return null;
             }
             var leaf = (X509Certificate) chain[0];
+            String host = uri.getHost();
 
             try {
                 leaf.checkValidity();
@@ -214,13 +206,64 @@ public class PathCheckProbe {
                 return null;
             }
 
-            log.debug("path rule host={} cert type={}, switch-on -> forgiven", host, type);
-            /// 放行时返回带 certForgiven 标记的 outcome，lastErrorMessage 在 writeOutcome 里填 "cert_forgiven:<TYPE>"。
-            return new PathProbeOutcome(null, null, true, type);
+            /// 证书层面已放行，再拿一次子路由真实 HTTP 状态码：站点真挂了/500 不会因证书放行而显示"正常"。
+            /// lenient 失败（站点真挂了/超时）→ 走错误路径，counter 累计，告警仍触发。
+            log.debug("path rule host={} cert type={}, switch-on -> lenient GET {}", host, type, uri);
+            return executeLenientGet(uri);
         } catch (Exception e) {
             log.debug("path rule cert-forgive classify error, fall back to error path: {}", e.getMessage());
             return null;
         }
+    }
+
+    /// cert 放行后的 lenient 二次 GET：trust-all + noop 主机名验证，拿到子路由真实 HTTP 状态码。
+    /// 与 HttpSiteProbe.executeLenientGet 同构（JDK HttpsURLConnection 关闭主机名验证语义最稳），
+    /// 但只关心状态码，供 writeOutcome 走普通比对 + counter 累计。
+    /// - 拿到状态码 → (status, null)
+    /// - lenient 自身失败（站点真挂了/超时/IO）→ (null, "cert_lenient_failed:[phase]: ...") 走错误路径
+    private static PathProbeOutcome executeLenientGet(URI uri) {
+        URL url;
+        try {
+            url = uri.toURL();
+        } catch (Exception e) {
+            return new PathProbeOutcome(null, "cert_lenient_failed[url]: " + e.getMessage());
+        }
+        HttpURLConnection conn = null;
+        try {
+            var sslContext = SSLContext.getInstance("TLS");
+            sslContext.init(null, new TrustManager[]{new TrustAllManager()}, null);
+            HttpsURLConnection https = (HttpsURLConnection) url.openConnection();
+            https.setSSLSocketFactory(sslContext.getSocketFactory());
+            https.setHostnameVerifier((hostname, session) -> true);   // noop 主机名校验
+            https.setRequestMethod("GET");
+            https.setRequestProperty("User-Agent", USER_AGENT);
+            https.setConnectTimeout((int) TIMEOUT.toMillis());
+            https.setReadTimeout((int) TIMEOUT.toMillis());
+            https.setInstanceFollowRedirects(true);
+            conn = https;
+            // 触发连接 + 握手 + 读取状态码；读 response 关闭以释放
+            https.connect();
+            int code = https.getResponseCode();
+            return new PathProbeOutcome(code, null);
+        } catch (Exception e) {
+            String phase = (conn == null) ? "connect" : "read";
+            return new PathProbeOutcome(null, "cert_lenient_failed[" + phase + "]: "
+                    + e.getClass().getSimpleName() + ": " + e.getMessage());
+        } finally {
+            if (conn != null) {
+                try {
+                    conn.disconnect();
+                } catch (Exception ignored) {
+                }
+            }
+        }
+    }
+
+    /// 校验全部放行但不做任何实际检查的 X509TrustManager。用作 lenient 二次探测的 delegate。
+    private static final class TrustAllManager implements X509TrustManager {
+        @Override public void checkClientTrusted(X509Certificate[] chain, String authType) { /* 放行 */ }
+        @Override public void checkServerTrusted(X509Certificate[] chain, String authType) { /* 放行 */ }
+        @Override public X509Certificate[] getAcceptedIssuers() { return new X509Certificate[0]; }
     }
 
     /// 绑定 CapturingTrustManager 的 HTTPS client（严格校验 → 失败时抓叶子）。
@@ -258,9 +301,8 @@ public class PathCheckProbe {
         return url != null && url.regionMatches(true, 0, "https://", 0, 8);
     }
 
-    /// 路径规则探测结果。certForgiven=true 时 writer 走放行路径；httpStatus / errorMessage 在放行时为 null
-    /// （由 writeOutcome 填 "cert_forgiven:<type>" 替代）。
-    private record PathProbeOutcome(Integer httpStatus, String errorMessage,
-                                    boolean certForgiven, CertForgiveType certForgivenType) {
+    /// 路径规则探测结果：httpStatus 为 null 表示探测失败（握手失败 / 超时 / lenient 自身失败），
+    /// errorMessage 给出可读摘要；writeOutcome 统一按 SitePathRule.isFailing 维护 counter。
+    private record PathProbeOutcome(Integer httpStatus, String errorMessage) {
     }
 }

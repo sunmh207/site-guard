@@ -483,9 +483,10 @@ class PathCheckProbeTest {
     // ----------- 测试用例 ----------------------------------------------------------
 
     /// 站点开启"链不完整"放行 + HTTPS 签发者不在信任库（严格报 PKIX path building failed）
-    /// → probe 捕获证书判断为 CHAIN_INCOMPLETE，命中开关：放行，counter 归零，lastErrorMessage="cert_forgive:CHAIN_INCOMPLETE"
+    /// → probe 捕获证书判断为 CHAIN_INCOMPLETE，命中开关：lenient GET 拿到真实状态码 200（== 期望 200），
+    /// 走普通 writeOutcome → success，counter 归零，lastHttpStatus=200，lastErrorMessage=null。
     @Test
-    void pathRule_chainIncomplete_forgiven_resetsCounterAndWritesTrace() throws Exception {
+    void pathRule_chainIncomplete_forgiven_lenientGet_matchesExpected_resetsCounter() throws Exception {
         var issued = TestCerts.issue(365, new String[]{"127.0.0.1"}, "CN=Unknown CA, O=Test Guard Guard");
         var site = httpsSite(null);
         try (var h = startHttps(issued)) {
@@ -497,14 +498,15 @@ class PathCheckProbeTest {
 
             probe.probe(site);
 
-            // 放行：counter 归零、lastErrorMessage 记录放行类型
-            assertEquals(0, r.getConsecutiveFailures(), "forgiven 路径不应累计 counter");
-            assertEquals("cert_forgiven:CHAIN_INCOMPLETE", r.getLastErrorMessage());
-            assertNull(r.getLastHttpStatus(), "未发生真实 HTTP 请求，状态应为 null");
+            // lenient GET 拿到真实 200（== 期望 200）→ success：counter 归零、lastHttpStatus 为真实值
+            assertEquals(0, r.getConsecutiveFailures(), "lenient GET 命中期望状态码，counter 应归零");
+            assertEquals(200, r.getLastHttpStatus(), "lenient GET 应拿到真实状态码");
+            assertNull(r.getLastErrorMessage(), "success 不应有错误消息");
             verify(ruleRepo).saveAll(argThat(rules -> {
                 var saved = rules.iterator().next();
                 return saved.getConsecutiveFailures() == 0
-                        && "cert_forgiven:CHAIN_INCOMPLETE".equals(saved.getLastErrorMessage());
+                        && saved.getLastHttpStatus() != null && saved.getLastHttpStatus() == 200
+                        && saved.getLastErrorMessage() == null;
             }));
         }
     }
@@ -577,9 +579,10 @@ class PathCheckProbeTest {
         }
     }
 
-    /// 域名错配（SAN=example.com 连 127.0.0.1） + 站点开启域名错配 → 放行，counter 归零
+    /// 域名错配（SAN=example.com 连 127.0.0.1） + 站点开启域名错配 → lenient GET 拿到真实 200（== 期望 200），
+    /// 走普通 writeOutcome → success，counter 归零，lastHttpStatus=200。
     @Test
-    void pathRule_domainMismatch_forgiven_resetsCounterAndWritesTrace() throws Exception {
+    void pathRule_domainMismatch_forgiven_lenientGet_matchesExpected_resetsCounter() throws Exception {
         var issued = TestCerts.issue(365, new String[]{"example.com"}, "CN=Unknown CA, O=Test Guard");
         var site = httpsSite(null);
         try (var h = startHttps(issued)) {
@@ -591,13 +594,63 @@ class PathCheckProbeTest {
 
             probe.probe(site);
 
-            assertEquals(0, r.getConsecutiveFailures());
-            assertEquals("cert_forgiven:DOMAIN_MISMATCH", r.getLastErrorMessage());
+            // lenient GET 拿到真实 200（== 期望 200）→ success：counter 归零、lastHttpStatus 为真实值
+            assertEquals(0, r.getConsecutiveFailures(), "lenient GET 命中期望状态码，counter 应归零");
+            assertEquals(200, r.getLastHttpStatus(), "lenient GET 应拿到真实状态码");
+            assertNull(r.getLastErrorMessage(), "success 不应有错误消息");
             verify(ruleRepo).saveAll(argThat(rules -> {
                 var saved = rules.iterator().next();
                 return saved.getConsecutiveFailures() == 0
-                        && "cert_forgiven:DOMAIN_MISMATCH".equals(saved.getLastErrorMessage());
+                        && saved.getLastHttpStatus() != null && saved.getLastHttpStatus() == 200
+                        && saved.getLastErrorMessage() == null;
             }));
         }
     }
+
+    // ---------- 回归测试：证书放行后子路由真实状态码 ≠ 期望 → 应累计 counter 并发告警 ----------
+    //
+    // 旧行为 bug：cert_forgive 命中后直接返回 certForgiven=true，writeOutcome 强制 counter=0、跳过状态比对，
+    // 导致"期望 403、实际 200"这种真实异常被吞掉，前端永远显示"正常"。
+    // 新行为：lenient GET 拿到真实状态码后走普通 writeOutcome，200 ≠ 403 → counter 累计 → 达阈值后告警。
+
+    /// 站点开启"链不完整"放行，子路由 /app_dev 期望 403 但 lenient GET 拿到真实 200（≠ 403）→ 失败，counter 应累计。
+    @Test
+    void pathRule_chainIncomplete_forgiven_lenientGet_statusMismatch_incrementsCounter() throws Exception {
+        var issued = TestCerts.issue(365, new String[]{"127.0.0.1"}, "CN=Unknown CA, O=Test Guard Guard");
+        var site = httpsSite(null);
+        try (var h = startHttps(issued)) {
+            site.setUrl(h.baseUrl);
+            setForgive(site, com.siteguard.monitor.probe.CertForgiveType.CHAIN_INCOMPLETE);
+
+            // 注册 /app_dev：lenient GET 走 trust-all 会拿到这里返回的真实状态码 200
+            h.server().createContext("/app_dev", ex -> {
+                ex.sendResponseHeaders(200, -1);
+                ex.close();
+            });
+
+            // 规则期望 403（与真实 200 不一致）→ 应判定为失败，counter 累计
+            var r = new SitePathRule();
+            r.setId(System.nanoTime());
+            r.setSiteId(1L);
+            r.setPath("/app_dev");
+            r.setExpectedHttpStatus(403);
+            r.setConsecutiveFailures(0);
+            when(ruleRepo.findBySiteIdOrderByIdAsc(1L)).thenReturn(List.of(r));
+
+            probe.probe(site);
+
+            // lenient GET 拿到真实 200 ≠ 期望 403 → failure：counter 应累计到 1，lastHttpStatus=200，errorMessage=null
+            assertEquals(200, r.getLastHttpStatus(), "lenient GET 应拿到真实状态码 200");
+            assertNull(r.getLastErrorMessage(), "拿到真实状态码时 errorMessage 应为 null");
+            assertEquals(1, r.getConsecutiveFailures(),
+                    "真实状态码 ≠ 期望值 → failure，counter 应累计（旧 bug 这里错误归零）");
+            verify(ruleRepo).saveAll(argThat(rules -> {
+                var saved = rules.iterator().next();
+                return saved.getConsecutiveFailures() == 1
+                        && saved.getLastHttpStatus() != null && saved.getLastHttpStatus() == 200
+                        && saved.getLastErrorMessage() == null;
+            }));
+        }
+    }
+
 }
