@@ -44,4 +44,15 @@ public class SiteCreateParams {
     /// 是否放过自签证书（issuer DN == subject DN）。默认 false。strict 握手失败且 trust-all 重连成功时生效。
     @Schema(description = "是否放行自签证书", defaultValue = "false", example = "false")
     private Boolean certForgiveSelfSigned;
+
+    /// 运维时段 JSON 对象字符串,每日该时段跳过探测/告警(与 paused 同质,按时间表自动开关)。
+    /// 结构: {"start":"22:00","end":"08:00","days":["MON","TUE","WED","THU","FRI"]}
+    /// - start / end 必填,格式 "HH:mm";start ＞ end 视为跨日窗口
+    /// - days 可选,MON..SUN 子集;不传 = 全周(最常见场景)
+    /// - 省略 或 传 null = 不设置(沿用"未启用",站点 24h 监控)
+    /// 非法 JSON / 语义非法(start==end、非法天数等) → 后端校验 400
+    @Schema(description = "运维时段,JSON 对象;例 {\"start\":\"22:00\",\"end\":\"08:00\"};省略/null=不设置",
+            nullable = true,
+            example = "{\"start\":\"22:00\",\"end\":\"08:00\"}")
+    private String maintenance;
 }

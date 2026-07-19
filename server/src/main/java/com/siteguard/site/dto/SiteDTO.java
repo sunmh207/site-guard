@@ -1,5 +1,6 @@
 package com.siteguard.site.dto;
 
+import com.siteguard.site.entity.MaintenanceStatus;
 import com.siteguard.site.entity.SiteStatus;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
@@ -66,4 +67,19 @@ public class SiteDTO {
     /// 是否放过自签证书（issuer DN == subject DN）。默认 false。
     @Schema(description = "是否放过自签证书；strict 握手失败且 trust-all 重连成功时生效", example = "false")
     private boolean certForgiveSelfSigned;
+
+    /// 站点运维时段运行态(只读计算字段)。
+    /// - NONE:      站点未启用运维时段(默认)
+    /// - ACTIVE:    站点已配置运维时段,且此刻正落在窗口内(运维进行中)
+    /// - SCHEDULED: 站点已配置运维时段,但此刻不在窗口内(计划态)
+    @Schema(description = "运维时段运行态:NONE=未启用,ACTIVE=进行中,SCHEDULED=计划态",
+            nullable = true, example = "ACTIVE")
+    private MaintenanceStatus maintenanceStatus;
+
+    /// 运维时段原始 JSON 对象,仅编辑回显/提交用。
+    /// 若站点未启用则为 null。前端表单回显到此值,配合 maintenanceStatus 展示"运维中"徽标。
+    @Schema(description = "运维时段原始 JSON;例 {\"start\":\"22:00\",\"end\":\"08:00\"}",
+            nullable = true,
+            example = "{\"start\":\"22:00\",\"end\":\"08:00\"}")
+    private String maintenance;
 }

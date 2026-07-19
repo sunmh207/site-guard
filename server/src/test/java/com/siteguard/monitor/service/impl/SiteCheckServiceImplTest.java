@@ -12,6 +12,7 @@ import com.siteguard.monitor.repository.SiteCheckHistoryRepository;
 import com.siteguard.site.entity.Site;
 import com.siteguard.site.entity.SiteStatus;
 import com.siteguard.site.repository.SiteRepository;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -19,6 +20,9 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Sort;
 
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
@@ -53,8 +57,17 @@ class SiteCheckServiceImplTest {
     @Mock
     PathCheckProbe pathCheckProbe;
 
-    @org.mockito.InjectMocks
-    SiteCheckServiceImpl service;
+    /// 固定时钟:2026-07-20 12:00 UTC(周一)。运维时段判定基于此时刻。
+    /// 使用固定时钟而非系统时间,避免测试因实际执行时间不同而产生 flaky。
+    private final Clock fixedClock = Clock.fixed(Instant.ofEpochMilli(1_784_000_000_000L), ZoneOffset.UTC);
+
+    private SiteCheckServiceImpl service;
+
+    @BeforeEach
+    void setUp() {
+        // 手动构造以注入 Clock(与 MonitorTimeConfig.clock() 同类型);避免 @InjectMocks 注入复杂度
+        service = new SiteCheckServiceImpl(probe, historyRepo, siteRepo, aggregationService, pathCheckProbe, fixedClock);
+    }
 
     private Site newSite() {
         var s = new Site();
@@ -285,6 +298,41 @@ class SiteCheckServiceImplTest {
         // 子路由探测仅对 active 站点调用 1 次，paused 站点不进 checkOne
         verify(pathCheckProbe, times(1)).probe(active);
         verify(pathCheckProbe, never()).probe(paused);
+    }
+
+    /// checkAll 必须在分发前过滤掉运维时段内站点:与 paused 同质,按时间表自动跳过。
+    /// 固定时钟 2026-07-20 12:00 UTC(周一)并不在任何站点窗口内(maintenance 08:00-22:00 跨越到 22:00 闭),
+    /// 这里用跨日窗口 08:00-22:00 把 12:00 圈入窗口内 → 应被过滤。
+    @Test
+    void checkAll_filtersMaintenanceWindowSites() throws Exception {
+        var active = new Site();
+        active.setId(1L);
+        active.setName("active");
+        active.setUrl("https://a.example.com");
+        active.setPaused(false);
+        // 无运维时段 → 24h 监控,12:00 不受影响
+        active.setMaintenance(null);
+
+        var inMaintenance = new Site();
+        inMaintenance.setId(2L);
+        inMaintenance.setName("maint");
+        inMaintenance.setUrl("https://m.example.com");
+        inMaintenance.setPaused(false);
+        // 跨日窗口 22:00-08:00 → 12:00 不在窗口内,故意反向。这里改用 08:00-22:00 把 12:00 圈入
+        inMaintenance.setMaintenance("{\"start\":\"08:00\",\"end\":\"22:00\"}");
+
+        when(siteRepo.findAll(any(Sort.class))).thenReturn(List.of(active, inMaintenance));
+        when(probe.probe(active)).thenReturn(ProbeResult.up(200, 50));
+
+        service.checkAll();
+
+        // 运维时段内站点不应被探活:仅 active 写历史 1 次
+        verify(historyRepo, times(1)).save(any(SiteCheckHistory.class));
+        // 仅 active 站点落库:snapshot + counter 共 2 次
+        verify(siteRepo, times(2)).save(any(Site.class));
+        // 子路由探测仅对 active 站点调用 1 次
+        verify(pathCheckProbe, times(1)).probe(active);
+        verify(pathCheckProbe, never()).probe(inMaintenance);
     }
 
     /// checkOne 对直接传入的 paused 站点必须直接返回，绝不写历史/更新快照。

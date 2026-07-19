@@ -41,9 +41,11 @@ const stubs = {
   UFormField: true,
   USelectMenu: true,
   USlideover: true,
-  // Nuxt UI v4 开关组件是 USwitch（不是 v3 的 UToggle）；本抽屉用 UAccordion 折叠证书降级开关
+  // Nuxt UI v4 开关组件是 USwitch（不是 v3 的 UToggle）；本抽屉用 UAccordion 折叠证书降级开关 / 运维时段
   USwitch: true,
   UAccordion: true,
+  // 运维时段适用日 7 个复选框
+  UCheckbox: true,
 }
 
 describe('SiteEditSlideover - prefill', () => {
@@ -69,5 +71,55 @@ describe('SiteEditSlideover - prefill', () => {
     expect((w.vm as any).formName).toBe('')
     expect((w.vm as any).formUrl).toBe('')
     expect((w.vm as any).formCategoryId).toBe(7)
+  })
+
+  it('create 模式默认运维时段禁用', () => {
+    const w = mount(SiteEditSlideover, {
+      props: { open: true, site: null },
+      global: { stubs },
+    })
+    expect((w.vm as any).formMaintenanceEnabled).toBe(false)
+  })
+
+  it('update 模式 + 站点已有 maintenance 时回显控件', () => {
+    const w = mount(SiteEditSlideover, {
+      props: {
+        open: true,
+        site: {
+          id: 1,
+          name: '官网',
+          url: 'https://example.com',
+          categoryId: 1,
+          maintenance: '{"start":"22:00","end":"08:00","days":["MON","TUE"]}',
+        },
+      },
+      global: { stubs },
+    })
+    expect((w.vm as any).formMaintenanceEnabled).toBe(true)
+    expect((w.vm as any).formMaintenanceStart).toBe('22:00')
+    expect((w.vm as any).formMaintenanceEnd).toBe('08:00')
+    expect((w.vm as any).formMaintenanceDays).toEqual(['MON', 'TUE'])
+  })
+
+  it('toggleWeekDay:勾选添加 / 取消移除', () => {
+    const w = mount(SiteEditSlideover, {
+      props: { open: true, site: null },
+      global: { stubs },
+    })
+    const vm = w.vm as any
+    // 初始空(全周)
+    expect(vm.formMaintenanceDays).toEqual([])
+    // 勾选 MON
+    vm.toggleWeekDay('MON', true)
+    expect(vm.formMaintenanceDays).toEqual(['MON'])
+    // 勾选 FRI
+    vm.toggleWeekDay('FRI', true)
+    expect(vm.formMaintenanceDays).toEqual(['MON', 'FRI'])
+    // 取消 MON
+    vm.toggleWeekDay('MON', false)
+    expect(vm.formMaintenanceDays).toEqual(['FRI'])
+    // 重复勾选幂等
+    vm.toggleWeekDay('FRI', true)
+    expect(vm.formMaintenanceDays).toEqual(['FRI'])
   })
 })

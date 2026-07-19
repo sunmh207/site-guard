@@ -53,4 +53,22 @@ public class SiteUpdateParams {
     /// null = 不传则不改（PATCH 语义）；true/false = 显式设置。
     @Schema(description = "是否放行自签证书；null 表示不修改", nullable = true, example = "false")
     private Boolean certForgiveSelfSigned;
+
+    /// 运维时段 JSON 对象字符串,每日该时段跳过探测/告警(与 paused 同质,按时间表自动开关)。
+    /// 结构: {"start":"22:00","end":"08:00","days":["MON","TUE","WED","THU","FRI"]}
+    /// - start / end 必填,格式 "HH:mm";start ＞ end 视为跨日窗口
+    /// - days 可选,MON..SUN 子集;不传 = 全周(最常见场景)
+    /// - 省略 或 传 null = 不动当前配置(PATCH 语义)
+    /// 非法 JSON / 语义非法(start==end、非法天数等) → 后端校验 400
+    @Schema(description = "运维时段,JSON 对象;例 {\"start\":\"22:00\",\"end\":\"08:00\"};null/省略=不修改",
+            nullable = true,
+            example = "{\"start\":\"22:00\",\"end\":\"08:00\"}")
+    private String maintenance;
+
+    /// PATCH 语义下的"取消运维时段"信号。
+    /// 当 true 时,把站点 maintenance 字段清空(= 未启用,站点恢复 24h 监控)。
+    /// false 或省略 = 不动;配合 maintenance 字段,实现"修改 / 取消 / 不动"三态语义。
+    @Schema(description = "是否取消运维时段(true=清空 maintenance 字段);false/省略=不修改当前配置",
+            nullable = true, example = "false")
+    private Boolean unsetMaintenance;
 }

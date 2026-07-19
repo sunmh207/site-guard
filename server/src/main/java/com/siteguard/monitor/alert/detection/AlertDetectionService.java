@@ -9,6 +9,7 @@ import com.siteguard.monitor.alert.notification.NotificationEvent;
 import com.siteguard.monitor.entity.SitePathRule;
 import com.siteguard.monitor.repository.SitePathRuleRepository;
 import com.siteguard.site.entity.Site;
+import com.siteguard.site.entity.SiteMaintenance;
 import com.siteguard.site.repository.SiteRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -17,6 +18,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
+import java.time.Instant;
 import java.util.*;
 
 /// 告警边沿检测服务：每次 tick 拉所有非暂停站点 → 跑全部检测器 →
@@ -73,8 +75,13 @@ public class AlertDetectionService {
     /// 再发一条 NORMAL 事件，触发用户报告的"从正常到正常不断发恢复通知"bug。
     @Transactional
     public void detectAll() {
+        // 整轮检测共用一个 now,与 checkAll 判定一致(运维时段内站点既不被探测、也不被检测)。
+        // 取 Instant 传入 SiteMaintenance,由其按 SiteMaintenance.DEFAULT_ZONE(Asia/Shanghai) 解读 wall-clock 时间。
+        var now = Instant.now(clock);
         List<Site> sites = siteRepo.findAll().stream()
                 .filter(s -> !s.isPaused())
+                // 运维时段内站点同样参与"静默":跳过告警判定,避免窗口内正常运维被误报
+                .filter(s -> !SiteMaintenance.isInMaintenance(s, now))
                 .toList();
         if (sites.isEmpty()) {
             return;

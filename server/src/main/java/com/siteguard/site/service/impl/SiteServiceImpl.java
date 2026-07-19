@@ -2,14 +2,15 @@ package com.siteguard.site.service.impl;
 
 import com.siteguard.category.service.CategoryService;
 import com.siteguard.common.exception.Errors;
+import com.siteguard.monitor.probe.CertForgive;
+import com.siteguard.monitor.probe.CertForgiveType;
 import com.siteguard.monitor.repository.SiteCheckHistoryRepository;
 import com.siteguard.monitor.repository.SitePathRuleRepository;
 import com.siteguard.site.dto.SiteCreateParams;
 import com.siteguard.site.dto.SiteDTO;
 import com.siteguard.site.dto.SiteSearchParams;
 import com.siteguard.site.dto.SiteUpdateParams;
-import com.siteguard.monitor.probe.CertForgive;
-import com.siteguard.monitor.probe.CertForgiveType;
+import com.siteguard.site.entity.MaintenanceWindow;
 import com.siteguard.site.entity.QSite;
 import com.siteguard.site.entity.Site;
 import com.siteguard.site.entity.SiteStatus;
@@ -18,7 +19,6 @@ import com.siteguard.site.repository.SiteRepository;
 import com.siteguard.site.service.SiteService;
 import com.querydsl.core.BooleanBuilder;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.jspecify.annotations.NonNull;
@@ -72,6 +72,8 @@ public class SiteServiceImpl implements SiteService {
         // 证书校验分级放行：把 3 个开关拼成 JSON 数组
         site.setCertForgive(resolveCertForgiveJson(params.getCertForgiveChainIncomplete(),
                 params.getCertForgiveDomainMismatch(), params.getCertForgiveSelfSigned()));
+        // 运维时段:校验后写入(非法 JSON / 语义非法 → 400)
+        site.setMaintenance(resolveMaintenanceJson(params.getMaintenance()));
         repo.save(site);
         return mapper.toDTO(site);
     }
@@ -103,6 +105,12 @@ public class SiteServiceImpl implements SiteService {
                 || params.getCertForgiveSelfSigned() != null) {
             site.setCertForgive(resolveCertForgiveJson(params.getCertForgiveChainIncomplete(),
                     params.getCertForgiveDomainMismatch(), params.getCertForgiveSelfSigned()));
+        }
+        // 运维时段 PATCH 语义:unsetMaintenance=true → 清空;maintenance 非空 → 校验后写入;否则不动
+        if (Boolean.TRUE.equals(params.getUnsetMaintenance())) {
+            site.setMaintenance(null);
+        } else if (params.getMaintenance() != null) {
+            site.setMaintenance(resolveMaintenanceJson(params.getMaintenance()));
         }
         repo.save(site);
         return mapper.toDTO(site);
@@ -143,6 +151,40 @@ public class SiteServiceImpl implements SiteService {
         if (Boolean.TRUE.equals(domain))     types.add(CertForgiveType.DOMAIN_MISMATCH);
         if (Boolean.TRUE.equals(selfSigned)) types.add(CertForgiveType.SELF_SIGNED);
         return CertForgive.json(types);
+    }
+
+    /// 校验前端传来的 maintenance JSON,通过后返回规范化后的 JSON 字符串用于入库。
+    /// 校验失败抛 Errors.BAD_REQUEST,对齐 SiteController 的 AppException 处理。
+    ///
+    /// 空字符串 = 关闭(返回 null,让列保持 NULL);
+    /// 非空字符串必须能解析为合法结构:JSON 对象;start / end 格式 "HH:mm" 且不相等;
+    /// days(若有)是 MON..SUN 子集。
+    private String resolveMaintenanceJson(String maintenance) {
+        if (maintenance == null) {
+            return null;
+        }
+        // 前端取消启用时传空字符串,关闭(让列保持 NULL)
+        if (maintenance.isBlank()) {
+            return null;
+        }
+        // 先整体 parse;失败(非法 JSON / 非法 days / start==end 等) → MaintenanceWindow.NONE
+        MaintenanceWindow w = MaintenanceWindow.parse(maintenance);
+        if (w.isEmpty()) {
+            // 进一步区分:是"用户本意就是关闭"还是"输入错误 → 应报错"
+            // 约定:若原始串本就是空 JSON `{}` 当关闭处理(null);其它任何非法输入 → 400
+            boolean intentionalEmpty = maintenance.replaceAll("\\s", "").equals("{}");
+            if (intentionalEmpty) {
+                return null;
+            }
+            throw Errors.BAD_REQUEST.toException(
+                    "maintenance 格式非法,期望 JSON 对象,例 {\"start\":\"22:00\",\"end\":\"08:00\"}");
+        }
+        // 重新序列化一次,得到规范化表示(去掉前端可能缺失的 days 默认排序、去重等)
+        String normalized = MaintenanceWindow.json(w);
+        if (normalized == null) {
+            throw Errors.BAD_REQUEST.toException("maintenance 序列化失败");
+        }
+        return normalized;
     }
 
     @Override

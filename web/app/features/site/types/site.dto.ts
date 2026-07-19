@@ -48,7 +48,14 @@ export interface SiteDto {
   certForgiveDomainMismatch?: boolean
   /// 是否放过自签证书（issuer DN == subject DN）。默认 false。
   certForgiveSelfSigned?: boolean
+  /// 运维时段运行态(只读计算字段,后端回填)。NONE=未启用 / ACTIVE=运维进行中 / SCHEDULED=计划态。
+  maintenanceStatus?: MaintenanceStatus
+  /// 运维时段原始 JSON,仅编辑回显/提交用。未启用为 undefined。
+  maintenance?: string
 }
+
+/// 运维时段运行态(只读):前端徽标/状态展示用。
+export type MaintenanceStatus = 'NONE' | 'ACTIVE' | 'SCHEDULED'
 
 /// 创建入参
 export interface SiteCreateParams {
@@ -64,6 +71,8 @@ export interface SiteCreateParams {
   certForgiveDomainMismatch?: boolean
   /// 是否放过自签证书；省略 = 走全局默认 false
   certForgiveSelfSigned?: boolean
+  /// 运维时段,JSON 对象字符串;例 {"start":"22:00","end":"08:00","days":["MON","TUE"]};省略/undefined = 不设置(沿用未启用)。
+  maintenance?: string
 }
 
 /// 更新入参（包含 ID 标识）
@@ -81,6 +90,10 @@ export interface SiteUpdateParams {
   certForgiveDomainMismatch?: boolean | null
   /// 是否放过自签证书；null = 不修改
   certForgiveSelfSigned?: boolean | null
+  /// 运维时段,JSON 对象字符串;例 {"start":"22:00","end":"08:00","days":["MON","TUE"]};null = 不修改当前配置。
+  maintenance?: string | null
+  /// PATCH 语义下的"取消运维时段"信号。true = 清空 maintenance 字段(关闭);false/undefined = 不修改。
+  unsetMaintenance?: boolean
 }
 
 /// 搜索条件（不含分页字段，分页由 useSearchPagination 注入）

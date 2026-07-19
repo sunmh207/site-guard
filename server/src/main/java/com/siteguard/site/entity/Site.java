@@ -94,6 +94,25 @@ public class Site extends BaseEntity {
         return CertForgive.parse(certForgive);
     }
 
+    /// 运维时段:每日跳过探测与告警的时间窗口。JSON 对象字符串,结构:
+    /// {"start":"22:00","end":"08:00","days":["MON","TUE","WED","THU","FRI"]}
+    ///
+    /// - null / 空 / " "{} → 未启用(默认,站点 24h 监控)
+    /// - start / end 必填,格式 "HH:mm";start ＞ end 视为跨日窗口(22:00-08:00)
+    /// - days 可选,不传 = 全周(MON..SUN),最常见场景默认够用
+    /// - start == end 视为二义性,解析时退化为未启用(见 MaintenanceWindow.parse)
+    ///
+    /// 判定路径: SiteMaintenance.isInMaintenance(效果与 paused 同质 —— 跳过探测+告警)
+    @Column(name = "maintenance", length = 256)
+    private String maintenance;
+
+    /// 运维时段结构化 view。null/空/解析失败 → MaintenanceWindow.NONE(严格兜底)。
+    /// 与 getCertForgiveTypes 风格对齐:列存原始 JSON,JPA 实体暴露解析后的不可变值对象。
+    /// 命名用 maintenanceWindow():避免与 Lombok 自动生成的字段 getter getMaintenance()(返回 String)冲突。
+    public MaintenanceWindow maintenanceWindow() {
+        return MaintenanceWindow.parse(maintenance);
+    }
+
     /// 三个便捷判定（给 probe 直接调用，描述"这种失败类型是否被放过"）。
     public boolean isForgiveChainIncomplete() {
         return getCertForgiveTypes().contains(CertForgiveType.CHAIN_INCOMPLETE);

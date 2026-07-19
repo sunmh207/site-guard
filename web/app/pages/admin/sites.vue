@@ -358,6 +358,7 @@ const columns = [
       <SiteStatusCell
         status={row.original.availabilityStatus}
         paused={row.original.paused}
+        maintenance-status={row.original.maintenanceStatus}
       />
     ),
   },

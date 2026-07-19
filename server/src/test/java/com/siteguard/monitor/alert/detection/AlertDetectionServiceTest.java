@@ -25,6 +25,7 @@ import java.util.*;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
@@ -380,4 +381,26 @@ class AlertDetectionServiceTest {
         assertNull(normals.get(0).abnormalStartedAt(),
                 "SiteCheckState 缺失时 abnormalStartedAt 应为 null");
     }
+
+    /// 运维时段内站点同样被 detectAll 跳过:此刻落在 22:00-08:00 跨日窗口 → 不发事件。
+    /// 固定时钟 2026-?? 12:00 UTC 为周一 12:00,不在跨日 22:00-08:00 窗口内,
+    /// 但本测试站点配置 08:00-22:00(同天)窗口 → 12:00 落在窗口内,应被过滤。
+    @Test
+    void maintenanceWindowSite_skippedInDetectAll() {
+        var maint = site(1L);
+        maint.setPaused(false);
+        // 同天窗口 08:00-22:00,此刻 12:00 UTC 落在内 → 过滤
+        maint.setMaintenance("{\"start\":\"08:00\",\"end\":\"22:00\"}");
+
+        when(siteRepo.findAll()).thenReturn(List.of(maint));
+        when(stateRepo.findByAlertKind(any(AlertKind.class))).thenReturn(List.of());
+
+        svc.detectAll();
+
+        // 没进入检测循环:不发事件、不读/写 state
+        verifyNoInteractions(publisher);
+        verify(stateRepo, never()).save(any());
+        verify(stateRepo, never()).deleteBySiteIdAndAlertKindAndBucketIn(anyLong(), any(), any());
+    }
+
 }

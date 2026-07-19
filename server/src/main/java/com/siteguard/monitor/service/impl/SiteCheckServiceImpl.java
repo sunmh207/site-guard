@@ -10,6 +10,7 @@ import com.siteguard.monitor.probe.SiteProbe;
 import com.siteguard.monitor.repository.SiteCheckHistoryRepository;
 import com.siteguard.monitor.service.SiteCheckService;
 import com.siteguard.site.entity.Site;
+import com.siteguard.site.entity.SiteMaintenance;
 import com.siteguard.site.entity.SiteStatus;
 import com.siteguard.site.repository.SiteRepository;
 import lombok.RequiredArgsConstructor;
@@ -19,6 +20,8 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
+import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
@@ -48,12 +51,20 @@ public class SiteCheckServiceImpl implements SiteCheckService {
     private final DashboardAlertAggregationService aggregationService;
     /// 子路由探测：根探测完成后调用，遍历站点的 path rule 做 HTTP GET 并回写规则行
     private final PathCheckProbe pathCheckProbe;
+    /// 站点运维时段判定使用:取"此刻"时间,结合 Site.maintenance JSON 按时间表自动跳过探测/告警。
+    /// 注入 MonitorTimeConfig.clock() 而不是 LocalDateTime.now(),便于测试伪造时间点。
+    private final Clock clock;
 
     @Override
     public void checkAll() {
+        // 整轮扫描共用一个 now,避免跨整点时有的站点判在运维内、有的判在外(同轮判定一致)。
+        // 取 Instant 传入 SiteMaintenance,由其按 SiteMaintenance.DEFAULT_ZONE(Asia/Shanghai) 解读 wall-clock 时间。
+        var now = Instant.now(clock);
         var sites = siteRepo.findAll(Sort.by(Sort.Direction.ASC, "id")).stream()
                 // 分发前过滤掉 paused 站点：暂停站点不参与扫描、不写历史/快照
                 .filter(s -> !s.isPaused())
+                // 运维时段内站点同样跳过(与 paused 同质,按时间表自动开关)
+                .filter(s -> !SiteMaintenance.isInMaintenance(s, now))
                 .toList();
         if (sites.isEmpty()) {
             return;

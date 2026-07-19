@@ -52,6 +52,11 @@ const formConsecutiveFailuresBeforeAlert = ref<number | null>(null)
 const formCertForgiveChainIncomplete = ref<boolean | null>(null)
 const formCertForgiveDomainMismatch = ref<boolean | null>(null)
 const formCertForgiveSelfSigned = ref<boolean | null>(null)
+/// 运维时段:启用开关 + 起始/结束时间(HH:mm) + 适用日(MON..SUN 子集,空 = 全周)。
+const formMaintenanceEnabled = ref(false)
+const formMaintenanceStart = ref('22:00')
+const formMaintenanceEnd = ref('08:00')
+const formMaintenanceDays = ref<string[]>([])   // [] = 全周
 const formError = ref<string | null>(null)
 
 /// 抽屉打开时根据模式填充表单
@@ -68,6 +73,8 @@ watch(open, (v) => {
     formCertForgiveChainIncomplete.value = props.site.certForgiveChainIncomplete ?? false
     formCertForgiveDomainMismatch.value = props.site.certForgiveDomainMismatch ?? false
     formCertForgiveSelfSigned.value = props.site.certForgiveSelfSigned ?? false
+    /// 编辑模式:解析现有 maintenance JSON 填充控件(未启用则保持默认态)
+    parseMaintenanceToForm(props.site.maintenance)
   }
   else {
     if (props.prefill) {
@@ -87,9 +94,68 @@ watch(open, (v) => {
     formCertForgiveChainIncomplete.value = false
     formCertForgiveDomainMismatch.value = false
     formCertForgiveSelfSigned.value = false
+    /// 创建模式:运维时段默认禁用(新站点 24h 监控)
+    parseMaintenanceToForm(null)
   }
   formError.value = null
 }, { immediate: true })
+
+/// 把站点 maintenance JSON 解析到表单控件(空 / 非法 JSON → 禁用态,保持默认控件值)。
+function parseMaintenanceToForm(maintenance: string | undefined | null) {
+  formMaintenanceEnabled.value = false
+  formMaintenanceStart.value = '22:00'
+  formMaintenanceEnd.value = '08:00'
+  formMaintenanceDays.value = []
+  if (!maintenance)
+    return
+  try {
+    const json = JSON.parse(maintenance) as { start?: string, end?: string, days?: string[] }
+    if (json.start && json.end) {
+      formMaintenanceEnabled.value = true
+      formMaintenanceStart.value = json.start
+      formMaintenanceEnd.value = json.end
+      formMaintenanceDays.value = Array.isArray(json.days) ? json.days : []
+    }
+  }
+  catch {
+    // 解析失败:保持禁用态,前端 validate 会阻止启用后提交
+  }
+}
+
+/// 把表单控件打包为 maintenance JSON 字符串。禁用态返回 null(让后端清空字段)。
+function buildMaintenanceJson(): string | null {
+  if (!formMaintenanceEnabled.value)
+    return null
+  const json: { start: string, end: string, days?: string[] } = {
+    start: formMaintenanceStart.value,
+    end: formMaintenanceEnd.value,
+  }
+  if (formMaintenanceDays.value.length > 0)
+    json.days = formMaintenanceDays.value
+  return JSON.stringify(json)
+}
+
+/// 星期选项(MON..SUN),用于前端多选。
+const WEEK_DAYS: { label: string, value: string }[] = [
+  { label: '一', value: 'MON' },
+  { label: '二', value: 'TUE' },
+  { label: '三', value: 'WED' },
+  { label: '四', value: 'THU' },
+  { label: '五', value: 'FRI' },
+  { label: '六', value: 'SAT' },
+  { label: '日', value: 'SUN' },
+]
+
+/// 切换单个适用日(MON..SUN):已存在则移除,未存在则添加;保持用户点击顺序无关。
+function toggleWeekDay(day: string, checked: boolean) {
+  if (checked) {
+    if (!formMaintenanceDays.value.includes(day))
+      formMaintenanceDays.value = [...formMaintenanceDays.value, day]
+  }
+  else {
+    formMaintenanceDays.value = formMaintenanceDays.value.filter(d => d !== day)
+  }
+}
 
 /// 本地校验规则，与 schemas/site.schema.ts 严格一致
 function validate(): string | null {
@@ -111,6 +177,14 @@ function validate(): string | null {
     && (!Number.isFinite(formConsecutiveFailuresBeforeAlert.value)
       || formConsecutiveFailuresBeforeAlert.value < 1)) {
     return '连续失败阈值必须 ≥ 1'
+  }
+  /// 运维时段:启用后校验 start / end 格式("HH:mm")且不可相等
+  if (formMaintenanceEnabled.value) {
+    const re = /^\d{2}:\d{2}$/
+    if (!re.test(formMaintenanceStart.value) || !re.test(formMaintenanceEnd.value))
+      return '运维时段格式非法,应为 HH:mm(如 22:00)'
+    if (formMaintenanceStart.value === formMaintenanceEnd.value)
+      return '运维时段起止时间不能相同'
   }
   return null
 }
@@ -135,6 +209,8 @@ async function handleSave() {
         certForgiveChainIncomplete: formCertForgiveChainIncomplete.value ?? false,
         certForgiveDomainMismatch: formCertForgiveDomainMismatch.value ?? false,
         certForgiveSelfSigned: formCertForgiveSelfSigned.value ?? false,
+        /// 运维时段:启用时提交 JSON,禁用时提交 null(未启用站点 24h 监控)
+        maintenance: buildMaintenanceJson(),
       })
       message.success('站点已创建')
     }
@@ -151,6 +227,9 @@ async function handleSave() {
         certForgiveChainIncomplete: formCertForgiveChainIncomplete.value,
         certForgiveDomainMismatch: formCertForgiveDomainMismatch.value,
         certForgiveSelfSigned: formCertForgiveSelfSigned.value,
+        /// 运维时段 PATCH 语义:启用 → JSON;禁用 → unsetMaintenance=true;不动 → 都不传
+        maintenance: formMaintenanceEnabled.value ? buildMaintenanceJson() : null,
+        unsetMaintenance: formMaintenanceEnabled.value ? undefined : true,
       })
       message.success('站点已更新')
     }
@@ -293,6 +372,78 @@ async function handleSave() {
               <p v-if="open" class="text-xs text-muted !mt-0">
                 以上选项仅在「站点能连上但证书报错」时告警静默；不影响站点宕机 / 500 等真实可用性告警，也不会延迟证书过期告警。
               </p>
+            </div>
+          </template>
+        </UAccordion>
+        <!--
+          运维时段:站点在指定时段内会按"自动暂停"处理(跳过探测+告警),避免定期运维误报。
+          - 默认收起(与站点证书放行规则折叠风格一致);点击标题展开后才能编辑。
+          - 默认不启用(站点 24h 监控);启用后每日 start-end 时段内自动静默。
+          - start > end 视为跨日窗口(22:00-次日 08:00);适用日不选 = 全周。
+          - 启用后提交 JSON;关闭提交让后端清空 maintenance PATCH 字段。
+        -->
+        <!--
+          折叠:无 default-value 即默认收起;点击标题展开(展开后才见启用开关 + 时间 + 适用日)。
+          collapsible 可单选;同时仅一个面板可开。
+        -->
+        <UAccordion
+          :items="[{ label: '站点运维时段', icon: 'i-lucide-moon', value: 'maintenance', slot: 'maintenance' }]"
+          :ui="{ trigger: 'text-sm font-normal', label: 'font-normal', content: 'pt-2 pb-0' }"
+        >
+          <!-- 运维时段正文:默认折叠;展开时显示启用开关 + 起始/结束时间 + 7 个复选框适用日 -->
+          <template #maintenance="{ open }">
+            <div class="space-y-4">
+              <USwitch
+                v-model="formMaintenanceEnabled"
+                name="maintenanceEnabled"
+                label="启用运维时段"
+                hint="开启后,每日该时段内站点不参与探测与告警(避免定期运维误报);站点维护结束后自动恢复监控。"
+                :disabled="loading"
+                :ui="{ label: 'font-normal' }"
+              />
+              <div v-if="formMaintenanceEnabled" class="space-y-4">
+                <div class="grid grid-cols-2 gap-3">
+                  <UFormField label="起始时间" name="maintenanceStart" :ui="{ label: 'text-xs font-normal mb-1' }">
+                    <UInput
+                      v-model="formMaintenanceStart"
+                      type="time"
+                      size="md"
+                      class="w-full"
+                      :disabled="loading"
+                    />
+                  </UFormField>
+                  <UFormField label="结束时间" name="maintenanceEnd" :ui="{ label: 'text-xs font-normal mb-1' }">
+                    <UInput
+                      v-model="formMaintenanceEnd"
+                      type="time"
+                      size="md"
+                      class="w-full"
+                      :disabled="loading"
+                    />
+                  </UFormField>
+                </div>
+                <!-- 适用日:7 个复选框(MON..SUN);不选 = 全周。HGrid 响应式:移动端单列、桌面端多列 -->
+                <UFormField
+                  label="适用日(不选 = 全周)"
+                  name="maintenanceDays"
+                  :ui="{ label: 'text-xs font-normal mb-1' }"
+                >
+                  <div class="flex flex-wrap gap-3">
+                    <UCheckbox
+                      v-for="day in WEEK_DAYS"
+                      :key="day.value"
+                      :model-value="formMaintenanceDays.includes(day.value)"
+                      :label="day.label"
+                      :disabled="loading"
+                      name="maintenanceDay"
+                      @update:model-value="(checked) => toggleWeekDay(day.value, checked)"
+                    />
+                  </div>
+                </UFormField>
+                <p v-if="open" class="text-xs text-muted !mt-0">
+                  窗口在起始时间(含)至结束时间(不含)内生效;若结束时间早于起始时间,视为跨日窗口(如 22:00-次日 08:00)。
+                </p>
+              </div>
             </div>
           </template>
         </UAccordion>
