@@ -43,6 +43,11 @@ app:
       refresh-token-ttl: 2592000000  # 30 天
 
 # SpringDoc OpenAPI 配置
+# 日志配置：LOG_LEVEL 环境变量控制全局级别，默认 INFO
+logging:
+  level:
+    root: ${LOG_LEVEL:INFO}
+
 springdoc:
   api-docs:
     path: /v3/api-docs
