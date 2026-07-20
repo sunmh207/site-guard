@@ -95,6 +95,9 @@ const handleLogin = async () => {
         </div>
         <span class="text-3xl font-semibold text-highlighted tracking-tight">Site Guard</span>
       </div>
+      <p class="mt-3 text-lg font-semibold text-highlighted tracking-wide">
+        不让故障,悄悄发生
+      </p>
     </div>
 
     <UCard
