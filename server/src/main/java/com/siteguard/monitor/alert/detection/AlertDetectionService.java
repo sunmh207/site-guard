@@ -6,7 +6,7 @@ import com.siteguard.monitor.alert.AlertDefinition.EvalResult;
 import com.siteguard.monitor.alert.AlertKind;
 import com.siteguard.monitor.alert.AlertStatus;
 import com.siteguard.monitor.alert.notification.NotificationEvent;
-import com.siteguard.monitor.entity.SitePathRule;
+import com.siteguard.monitor.probe.PathCheckType;
 import com.siteguard.monitor.repository.SitePathRuleRepository;
 import com.siteguard.site.entity.Site;
 import com.siteguard.site.entity.SiteMaintenance;
@@ -145,11 +145,17 @@ public class AlertDetectionService {
                 for (String bucket : disappeared) {
                     String msg;
                     if (kind == AlertKind.PATH_CHECK) {
-                        /// PATH_CHECK 恢复消息带上 rule 的 expected_http_status；
-                        /// rule 在异常期间被删则降级为不带期望码，避免强造状态码误导运维
+                        /// PATH_CHECK 恢复消息带上 rule 的期望信息；
+                        /// - HTTP_STATUS：带 expected_http_status，如 "（期望 200）"
+                        /// - KEYWORD：带 expected_text，如 "（期望包含「xxx」）"
+                        /// rule 在异常期间被删则降级为不带期望信息，避免强造状态码/关键字误导运维
                         msg = pathRuleRepo.findBySiteIdAndPath(site.getId(), bucket)
-                                .map(SitePathRule::getExpectedHttpStatus)
-                                .map(expected -> "子路由 `" + bucket + "` 已恢复（期望 " + expected + "）")
+                                .map(rule -> {
+                                    if (rule.getCheckType() == PathCheckType.KEYWORD) {
+                                        return "子路由 `" + bucket + "` 已恢复（期望包含「" + rule.getExpectedText() + "」）";
+                                    }
+                                    return "子路由 `" + bucket + "` 已恢复（期望 " + rule.getExpectedHttpStatus() + "）";
+                                })
                                 .orElse("子路由 `" + bucket + "` 已恢复");
                     } else if (!newHasAnyAbnormal && !newBuckets.isEmpty()) {
                         /// 守卫 !newBuckets.isEmpty()：避免检测器"暂无可发事件"被误读为"已恢复"。

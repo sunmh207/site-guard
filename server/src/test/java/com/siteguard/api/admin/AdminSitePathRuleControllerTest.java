@@ -55,7 +55,7 @@ class AdminSitePathRuleControllerTest {
     @Test
     void list_returnsRules() throws Exception {
         when(service.listBySite(1L)).thenReturn(List.of(
-                new SitePathRuleDTO(10L, 1L, "/app_dev.php", 200, 1_700_000_000_000L, 200, null, null)
+                new SitePathRuleDTO(10L, 1L, "/app_dev.php", 200, null, null, 1_700_000_000_000L, 200, null, null, null)
         ));
 
         mvc.perform(get("/api/v1/admin/site/1/pathRules/get"))
@@ -68,7 +68,7 @@ class AdminSitePathRuleControllerTest {
     @Test
     void set_callsServiceWithParsedRequest() throws Exception {
         var req = new SitePathRuleListRequest(1L, List.of(
-                new SitePathRuleDTO(null, 1L, "/a", 200, null, null, null, null)
+                new SitePathRuleDTO(null, 1L, "/a", 200, null, null, null, null, null, null, null)
         ));
 
         mvc.perform(post("/api/v1/admin/site/1/pathRules/set")
@@ -88,7 +88,7 @@ class AdminSitePathRuleControllerTest {
         doThrow(Errors.NOT_FOUND.toException("站点不存在 (ID: {})", 99L)).when(service).set(any());
         // 非空列表让 @Valid 通过，让 doThrow 实际触发。
         var req = new SitePathRuleListRequest(99L, List.of(
-                new SitePathRuleDTO(null, 99L, "/a", 200, null, null, null, null)
+                new SitePathRuleDTO(null, 99L, "/a", 200, null, null, null, null, null, null, null)
         ));
 
         mvc.perform(post("/api/v1/admin/site/99/pathRules/set")

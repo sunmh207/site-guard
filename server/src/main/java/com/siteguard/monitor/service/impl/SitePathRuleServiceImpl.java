@@ -8,6 +8,7 @@ import com.siteguard.monitor.dto.SitePathRuleDTO;
 import com.siteguard.monitor.dto.SitePathRuleListRequest;
 import com.siteguard.monitor.entity.SitePathRule;
 import com.siteguard.monitor.mapper.SitePathRuleMapper;
+import com.siteguard.monitor.probe.PathCheckType;
 import com.siteguard.monitor.repository.SitePathRuleRepository;
 import com.siteguard.monitor.service.SitePathRuleService;
 import com.siteguard.site.repository.SiteRepository;
@@ -57,8 +58,9 @@ public class SitePathRuleServiceImpl implements SitePathRuleService {
     private SitePathRuleDTO toDto(SitePathRule r, Long alertingSince) {
         return new SitePathRuleDTO(
                 r.getId(), r.getSiteId(), r.getPath(), r.getExpectedHttpStatus(),
-                r.getLastCheckedAt(), r.getLastHttpStatus(), r.getLastErrorMessage(),
-                alertingSince);
+                r.getCheckType(), r.getExpectedText(),
+                r.getLastCheckedAt(), r.getLastHttpStatus(), r.getLastTextMatched(),
+                r.getLastErrorMessage(), alertingSince);
     }
 
     @Override
@@ -69,6 +71,21 @@ public class SitePathRuleServiceImpl implements SitePathRuleService {
                 .orElseThrow(() -> Errors.NOT_FOUND.toException("站点不存在 (ID: {})", request.siteId()));
         // 全删旧规则（无论是否为空都调用，幂等）
         ruleRepo.deleteBySiteId(request.siteId());
+        // 跨字段校验：按 checkType 决定哪个字段必填。
+        // - KEYWORD：expectedText 必填（trim 后非空）
+        // - HTTP_STATUS：expectedHttpStatus 必填
+        // 校验放在 deleteBySiteId 之后、saveAll 之前：非法请求不污染已有数据。
+        for (SitePathRuleDTO dto : request.rules()) {
+            if (dto.checkType() == PathCheckType.KEYWORD) {
+                if (dto.expectedText() == null || dto.expectedText().trim().isEmpty()) {
+                    throw Errors.BAD_REQUEST.toException("关键字模式下 expectedText 不能为空 (path=%s)", dto.path());
+                }
+            } else {
+                if (dto.expectedHttpStatus() == null) {
+                    throw Errors.BAD_REQUEST.toException("HTTP_STATUS 模式下 expectedHttpStatus 不能为空 (path=%s)", dto.path());
+                }
+            }
+        }
         // 全插新规则；空列表 = 清空该站点全部规则
         if (request.rules().isEmpty()) {
             return;
@@ -82,6 +99,7 @@ public class SitePathRuleServiceImpl implements SitePathRuleService {
                     // 探测状态字段强制为 null，等待下次探测写入；防止前端伪造历史探测结果
                     e.setLastCheckedAt(null);
                     e.setLastHttpStatus(null);
+                    e.setLastTextMatched(null);
                     e.setLastErrorMessage(null);
                     // counter 一并归零：expected_http_status 可能已被前端改过，
                     // 旧 counter 是基于"旧 expected + 旧 last_http_status"统计的，留着会误判

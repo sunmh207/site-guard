@@ -147,7 +147,6 @@ public class SiteCheckServiceImpl implements SiteCheckService {
     }
 
     @Override
-    @Transactional(readOnly = true)
     public DashboardResponse getDashboard() {
         // 摘要分桶由 aggregationService 内部基于同一份 sites + alerts 算出，
         // 本方法只补 avgResponseMs（依赖独立时间窗口查询，与分桶无关）。

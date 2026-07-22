@@ -6,6 +6,7 @@ import com.siteguard.monitor.alert.AlertKind;
 import com.siteguard.monitor.alert.AlertStatus;
 import com.siteguard.monitor.alert.notification.NotificationEvent;
 import com.siteguard.monitor.entity.SitePathRule;
+import com.siteguard.monitor.probe.PathCheckType;
 import com.siteguard.monitor.repository.SitePathRuleRepository;
 import com.siteguard.site.entity.Site;
 import com.siteguard.site.repository.SiteRepository;
@@ -62,7 +63,19 @@ class AlertDetectionServiceTest {
         var r = new SitePathRule();
         r.setSiteId(siteId);
         r.setPath(path);
+        r.setCheckType(PathCheckType.HTTP_STATUS);
         r.setExpectedHttpStatus(expected);
+        return r;
+    }
+
+    /// 构造 KEYWORD 类型的 rule stub；PATH_CHECK 恢复消息拼装依赖 expectedText
+    private static SitePathRule keywordRuleWithExpectedText(long siteId, String path, String expectedText) {
+        var r = new SitePathRule();
+        r.setSiteId(siteId);
+        r.setPath(path);
+        r.setCheckType(PathCheckType.KEYWORD);
+        r.setExpectedText(expectedText);
+        r.setExpectedHttpStatus(200); // 占位，KEYWORD 模式下 isFailing 忽略
         return r;
     }
 
@@ -153,6 +166,33 @@ class AlertDetectionServiceTest {
         assertFalse(ev.message().contains("（路径："), "got: " + ev.message());
 
         verify(stateRepo).deleteBySiteIdAndAlertKindAndBucketIn(eq(1L), eq(AlertKind.PATH_CHECK), eq(Set.of("/api/orders")));
+        verify(stateRepo, never()).save(any());
+    }
+
+    /// PATH_CHECK 恢复时若 check_type=KEYWORD，恢复消息应带期望关键字而非 HTTP 状态码
+    @Test
+    void pathCheck_recovery_keywordRule_includesExpectedText() {
+        var s = site(1L);
+        when(siteRepo.findAll()).thenReturn(List.of(s));
+        var oldRow = stateRow(1L, "PATH_CHECK", "/api/home");
+        when(stateRepo.findByAlertKind(AlertKind.PATH_CHECK)).thenReturn(List.of(oldRow));
+        when(pathRuleRepo.findBySiteIdAndPath(1L, "/api/home"))
+                .thenReturn(Optional.of(keywordRuleWithExpectedText(1L, "/api/home", "SiteGuard")));
+        var def = new StubDefinition(AlertKind.PATH_CHECK, Map.of(1L, Set.of()));   // all ok
+        svcWith(def).detectAll();
+
+        var captor = ArgumentCaptor.forClass(NotificationEvent.class);
+        verify(publisher).publishEvent(captor.capture());
+        NotificationEvent ev = captor.getValue();
+        assertEquals(AlertStatus.NORMAL, ev.status());
+        assertEquals("/api/home", ev.bucket());
+        assertTrue(ev.message().contains("/api/home"));
+        assertTrue(ev.message().contains("已恢复"));
+        /// KEYWORD 模式：恢复消息带期望关键字 "期望包含「SiteGuard」"，而非 "期望 200"
+        assertTrue(ev.message().contains("期望包含「SiteGuard」"), "got: " + ev.message());
+        assertFalse(ev.message().contains("期望 200"), "got: " + ev.message());
+
+        verify(stateRepo).deleteBySiteIdAndAlertKindAndBucketIn(eq(1L), eq(AlertKind.PATH_CHECK), eq(Set.of("/api/home")));
         verify(stateRepo, never()).save(any());
     }
 

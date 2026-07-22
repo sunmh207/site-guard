@@ -653,4 +653,139 @@ class PathCheckProbeTest {
         }
     }
 
+    // ---------- 关键字模式测试 ----------
+
+    private SitePathRule keywordRule(String path, String expectedText) {
+        var r = new SitePathRule();
+        r.setId(System.nanoTime());
+        r.setSiteId(1L);
+        r.setPath(path);
+        r.setCheckType(PathCheckType.KEYWORD);
+        r.setExpectedText(expectedText);
+        r.setExpectedHttpStatus(200); // 占位，KEYWORD 模式下 isFailing 忽略它
+        return r;
+    }
+
+    @Test
+    void keywordMode_bodyContainsText_matched() {
+        server.createContext("/welcome", ex -> {
+            byte[] body = "<html>Welcome to SiteGuard</html>".getBytes();
+            ex.sendResponseHeaders(200, body.length);
+            ex.getResponseBody().write(body);
+            ex.close();
+        });
+        var r = keywordRule("/welcome", "SiteGuard");
+        when(ruleRepo.findBySiteIdOrderByIdAsc(1L)).thenReturn(List.of(r));
+
+        probe.probe(site());
+
+        assertEquals(200, r.getLastHttpStatus());
+        assertEquals(true, r.getLastTextMatched());
+        assertNull(r.getLastErrorMessage());
+    }
+
+    @Test
+    void keywordMode_bodyNotContainsText_notMatched() {
+        server.createContext("/welcome", ex -> {
+            byte[] body = "<html>Hello World</html>".getBytes();
+            ex.sendResponseHeaders(200, body.length);
+            ex.getResponseBody().write(body);
+            ex.close();
+        });
+        var r = keywordRule("/welcome", "SiteGuard");
+        when(ruleRepo.findBySiteIdOrderByIdAsc(1L)).thenReturn(List.of(r));
+
+        probe.probe(site());
+
+        assertEquals(200, r.getLastHttpStatus());
+        assertEquals(false, r.getLastTextMatched());
+    }
+
+    @Test
+    void keywordMode_connectionFailed_textMatchedNull() {
+        var s = site();
+        s.setUrl("http://127.0.0.1:1");
+        var r = keywordRule("/anything", "SiteGuard");
+        when(ruleRepo.findBySiteIdOrderByIdAsc(1L)).thenReturn(List.of(r));
+
+        probe.probe(s);
+
+        assertNull(r.getLastHttpStatus());
+        assertNull(r.getLastTextMatched());
+        assertNotNull(r.getLastErrorMessage());
+    }
+
+    // ---------- 关键字模式 + HTTPS cert_forgive 组合测试 ----------
+
+    /// KEYWORD 规则 + 站点开启"链不完整"放行 + 响应体包含关键字 → lenient GET 命中，counter 归零。
+    /// 注意：HttpsServer.createContext 对已有 path 会抛 IllegalArgumentException（不像 HttpServer 会覆盖），
+    /// 因此注册一个新 path 而非复用 startHttps 预设的 /ok。
+    @Test
+    void keywordMode_chainIncomplete_forgiven_bodyContainsText_resetsCounter() throws Exception {
+        var issued = TestCerts.issue(365, new String[]{"127.0.0.1"}, "CN=Unknown CA, O=Test Guard Guard");
+        var site = httpsSite(null);
+        try (var h = startHttps(issued)) {
+            site.setUrl(h.baseUrl);
+            setForgive(site, com.siteguard.monitor.probe.CertForgiveType.CHAIN_INCOMPLETE);
+
+            // lenient GET 走 trust-all 会拿到这里返回的真实 body
+            h.server().createContext("/keyword-ok", ex -> {
+                byte[] body = "Welcome SiteGuard OK".getBytes();
+                ex.sendResponseHeaders(200, body.length);
+                ex.getResponseBody().write(body);
+                ex.close();
+            });
+
+            var r = new SitePathRule();
+            r.setId(System.nanoTime());
+            r.setSiteId(1L);
+            r.setPath("/keyword-ok");
+            r.setCheckType(PathCheckType.KEYWORD);
+            r.setExpectedText("SiteGuard");
+            r.setExpectedHttpStatus(200); // 占位
+            r.setConsecutiveFailures(5);
+            when(ruleRepo.findBySiteIdOrderByIdAsc(1L)).thenReturn(List.of(r));
+
+            probe.probe(site);
+
+            assertEquals(0, r.getConsecutiveFailures(), "lenient GET 命中关键字，counter 应归零");
+            assertEquals(true, r.getLastTextMatched());
+            assertEquals(200, r.getLastHttpStatus());
+            assertNull(r.getLastErrorMessage());
+        }
+    }
+
+    /// KEYWORD 规则 + 站点开启"链不完整"放行 + 响应体不包含关键字 → lenient GET 未命中，counter 累计。
+    @Test
+    void keywordMode_chainIncomplete_forgiven_bodyNotContainsText_incrementsCounter() throws Exception {
+        var issued = TestCerts.issue(365, new String[]{"127.0.0.1"}, "CN=Unknown CA, O=Test Guard Guard");
+        var site = httpsSite(null);
+        try (var h = startHttps(issued)) {
+            site.setUrl(h.baseUrl);
+            setForgive(site, com.siteguard.monitor.probe.CertForgiveType.CHAIN_INCOMPLETE);
+
+            h.server().createContext("/keyword-not-ok", ex -> {
+                byte[] body = "Hello World".getBytes();
+                ex.sendResponseHeaders(200, body.length);
+                ex.getResponseBody().write(body);
+                ex.close();
+            });
+
+            var r = new SitePathRule();
+            r.setId(System.nanoTime());
+            r.setSiteId(1L);
+            r.setPath("/keyword-not-ok");
+            r.setCheckType(PathCheckType.KEYWORD);
+            r.setExpectedText("SiteGuard");
+            r.setExpectedHttpStatus(200);
+            r.setConsecutiveFailures(0);
+            when(ruleRepo.findBySiteIdOrderByIdAsc(1L)).thenReturn(List.of(r));
+
+            probe.probe(site);
+
+            assertEquals(1, r.getConsecutiveFailures(), "lenient GET 未命中关键字，counter 应累计");
+            assertEquals(false, r.getLastTextMatched());
+        }
+    }
+
 }

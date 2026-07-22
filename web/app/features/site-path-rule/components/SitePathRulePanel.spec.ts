@@ -33,15 +33,25 @@ const stubs = {
       + '</div>',
   },
   UButton: { props: ['label'], template: '<button>{{ label }}<slot /></button>' },
-  // UInput stub 同时把 modelValue 渲染成可见文本，便于 wrapper.text() 断言。
-  // 声明 type / modelModifiers 等常见 props 以避免 Vue "Extraneous non-props" 警告
-  UInput: {
-    props: ['modelValue', 'type', 'modelModifiers'],
+  UFormField: { template: '<div><slot /></div>' },
+  /// USelect 桩：渲染原生 <select>，按 items 展开 option，并通过 change 事件
+  /// 把新值 emit 出去，使 v-model="row.original.checkType" 真正生效。
+  /// items 为 { value, label } 对象数组（与组件实际传入格式一致）。
+  USelect: {
+    props: ['modelValue', 'items'],
     template:
-      '<input :value="modelValue" />'
+      '<select :value="modelValue" @change="$emit(\'update:modelValue\', $event.target.value)">'
+      + '<option v-for="it in items" :key="it.value" :value="it.value">{{ it.label }}</option>'
+      + '</select>',
+  },
+  /// UInput 桩加 @input 双向绑定，让 setValue('...') 真正驱动 modelValue 变化。
+  UInput: {
+    props: ['modelValue', 'type', 'placeholder', 'name', 'modelModifiers'],
+    template:
+      '<input :value="modelValue" :name="name" :type="type" :placeholder="placeholder"'
+      + ' @input="$emit(\'update:modelValue\', $event.target.value)" />'
       + '<span class="uinput-value">{{ modelValue }}</span>',
   },
-  UFormField: { template: '<div><slot /></div>' },
 }
 
 describe('SitePathRulePanel', () => {
@@ -132,5 +142,63 @@ describe('SitePathRulePanel', () => {
     const body = (setCall![1] as { body: { rules: unknown[] } }).body
     expect(Array.isArray(body.rules)).toBe(true)
     expect(body.rules.length).toBe(1)
+  })
+
+  it('renders checkType select and switches input between status code / keyword', async () => {
+    $adminApiMock.mockResolvedValueOnce({
+      data: [
+        { id: 1, siteId: 7, path: '/api/home', expectedHttpStatus: 200,
+          checkType: 'KEYWORD', expectedText: 'SiteGuard',
+          lastCheckedAt: null, lastHttpStatus: null, lastTextMatched: null,
+          lastErrorMessage: null, alertingSince: null },
+      ],
+    })
+    const wrapper = mount(SitePathRulePanel, {
+      props: { siteId: 7 },
+      global: { stubs },
+    })
+    await flushPromises()
+
+    // 列表应展示关键字文本
+    expect(wrapper.text()).toContain('SiteGuard')
+  })
+
+  it('save sends checkType + expectedText for KEYWORD rules', async () => {
+    $adminApiMock.mockResolvedValueOnce({ data: [] })
+    $adminApiMock.mockResolvedValueOnce({ data: null })
+    $adminApiMock.mockResolvedValueOnce({ data: [] })
+    const wrapper = mount(SitePathRulePanel, {
+      props: { siteId: 7 },
+      global: { stubs },
+    })
+    await flushPromises()
+
+    // 添加一行
+    const addBtn = wrapper.findAll('button').find(b => b.text().includes('添加'))
+    await addBtn!.trigger('click')
+
+    // 找到 checkType 选择器并切换为 KEYWORD
+    const select = wrapper.find('select')
+    expect(select.exists()).toBe(true)
+    await select.setValue('KEYWORD')
+    await select.trigger('change')
+
+    // 找到关键字输入并填入
+    const keywordInput = wrapper.find('input[name="expectedText"]')
+    expect(keywordInput.exists()).toBe(true)
+    await keywordInput.setValue('SiteGuard')
+
+    // 保存
+    const saveBtn = wrapper.findAll('button').find(b => b.text().includes('保存'))
+    await saveBtn!.trigger('click')
+    await flushPromises()
+
+    const setCall = $adminApiMock.mock.calls.find(
+      call => typeof call[0] === 'string' && (call[0] as string).includes('/set'),
+    )
+    expect(setCall).toBeDefined()
+    const body = (setCall![1] as { body: { rules: Array<Record<string, unknown>> } }).body
+    expect(body.rules[0].checkType).toBe('KEYWORD')
+    expect(body.rules[0].expectedText).toBe('SiteGuard')
   })
 })

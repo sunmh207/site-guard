@@ -34,8 +34,11 @@ const newRule = (): SitePathRuleDto => ({
   siteId: props.siteId,
   path: '/',
   expectedHttpStatus: 200,
+  checkType: 'HTTP_STATUS',
+  expectedText: null,
   lastCheckedAt: null,
   lastHttpStatus: null,
+  lastTextMatched: null,
   lastErrorMessage: null,
   alertingSince: null,
 })
@@ -81,8 +84,11 @@ async function save() {
         siteId: r.siteId,
         path: r.path,
         expectedHttpStatus: r.expectedHttpStatus,
+        checkType: r.checkType,
+        expectedText: r.expectedText,
         lastCheckedAt: null,
         lastHttpStatus: null,
+        lastTextMatched: null,
         lastErrorMessage: null,
         alertingSince: null,
       })),
@@ -121,8 +127,9 @@ import type { SitePathRuleDto } from '../types/site-path-rule.dto'
 
 const columns: Array<{ accessorKey: keyof SitePathRuleDto | 'actions'; header: string }> = [
   { accessorKey: 'path', header: '路径' },
-  { accessorKey: 'expectedHttpStatus', header: '期望状态码' },
-  { accessorKey: 'lastHttpStatus', header: '上次状态' },
+  { accessorKey: 'checkType', header: '判定类型' },
+  { accessorKey: 'expectedText', header: '期望内容' },
+  { accessorKey: 'lastTextMatched', header: '上次命中' },
   { accessorKey: 'lastErrorMessage', header: '错误' },
   { accessorKey: 'lastCheckedAt', header: '上次探测时间' },
   { accessorKey: 'alertingSince', header: '当前状态' },
@@ -149,11 +156,31 @@ const columns: Array<{ accessorKey: keyof SitePathRuleDto | 'actions'; header: s
       <template #path-cell="{ row }">
         <UInput v-model="row.original.path" />
       </template>
-      <template #expectedHttpStatus-cell="{ row }">
-        <UInput v-model.number="row.original.expectedHttpStatus" type="number" />
+      <template #checkType-cell="{ row }">
+        <USelect
+          v-model="row.original.checkType"
+          :items="[{ value: 'HTTP_STATUS', label: '状态码' }, { value: 'KEYWORD', label: '关键字' }]"
+        />
       </template>
-      <template #lastHttpStatus-cell="{ row }">
-        <span>{{ row.original.lastHttpStatus ?? '—' }}</span>
+      <template #expectedText-cell="{ row }">
+        <UInput
+          v-if="row.original.checkType === 'KEYWORD'"
+          v-model="row.original.expectedText"
+          name="expectedText"
+          placeholder="响应体包含此文本即正常"
+        />
+        <UInput
+          v-else
+          v-model.number="row.original.expectedHttpStatus"
+          type="number"
+          name="expectedHttpStatus"
+        />
+      </template>
+      <template #lastTextMatched-cell="{ row }">
+        <span v-if="row.original.checkType !== 'KEYWORD'">{{ '—' }}</span>
+        <UBadge v-else-if="row.original.lastTextMatched === true" color="success" variant="subtle">命中</UBadge>
+        <UBadge v-else-if="row.original.lastTextMatched === false" color="error" variant="subtle">未命中</UBadge>
+        <span v-else class="text-(--ui-text-muted)">{{ '—' }}</span>
       </template>
       <template #lastErrorMessage-cell="{ row }">
         <span>{{ row.original.lastErrorMessage ?? '—' }}</span>
@@ -198,11 +225,31 @@ const columns: Array<{ accessorKey: keyof SitePathRuleDto | 'actions'; header: s
       <template #path-cell="{ row }">
         <UInput v-model="row.original.path" />
       </template>
-      <template #expectedHttpStatus-cell="{ row }">
-        <UInput v-model.number="row.original.expectedHttpStatus" type="number" />
+      <template #checkType-cell="{ row }">
+        <USelect
+          v-model="row.original.checkType"
+          :items="[{ value: 'HTTP_STATUS', label: '状态码' }, { value: 'KEYWORD', label: '关键字' }]"
+        />
       </template>
-      <template #lastHttpStatus-cell="{ row }">
-        <span>{{ row.original.lastHttpStatus ?? '—' }}</span>
+      <template #expectedText-cell="{ row }">
+        <UInput
+          v-if="row.original.checkType === 'KEYWORD'"
+          v-model="row.original.expectedText"
+          name="expectedText"
+          placeholder="响应体包含此文本即正常"
+        />
+        <UInput
+          v-else
+          v-model.number="row.original.expectedHttpStatus"
+          type="number"
+          name="expectedHttpStatus"
+        />
+      </template>
+      <template #lastTextMatched-cell="{ row }">
+        <span v-if="row.original.checkType !== 'KEYWORD'">{{ '—' }}</span>
+        <UBadge v-else-if="row.original.lastTextMatched === true" color="success" variant="subtle">命中</UBadge>
+        <UBadge v-else-if="row.original.lastTextMatched === false" color="error" variant="subtle">未命中</UBadge>
+        <span v-else class="text-(--ui-text-muted)">{{ '—' }}</span>
       </template>
       <template #lastErrorMessage-cell="{ row }">
         <span>{{ row.original.lastErrorMessage ?? '—' }}</span>

@@ -32,6 +32,10 @@ export default defineConfig({
       // 匹配 Nuxt 约定：`~` / `@` 指向 app/ 目录，与运行时一致
       { find: '~', replacement: fileURLToPath(new URL('./app/', import.meta.url)) },
       { find: '@', replacement: fileURLToPath(new URL('./app/', import.meta.url)) },
+      // Nuxt `#components` auto-import 在 vitest 下无法生成虚拟模块，
+      // 用一个占位 stub 顶替，让 SFC 的 `import { UButton } from '#components'` 能解析。
+      // 测试已通过 uiStubs 把这些组件桩化，不会渲染真实实现。
+      { find: '#components', replacement: fileURLToPath(new URL('./test/components-stub.ts', import.meta.url)) },
     ],
   },
 })

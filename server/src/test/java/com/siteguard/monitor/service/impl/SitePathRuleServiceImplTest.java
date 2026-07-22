@@ -8,6 +8,7 @@ import com.siteguard.monitor.alert.detection.SiteCheckStateRepository;
 import com.siteguard.monitor.dto.SitePathRuleDTO;
 import com.siteguard.monitor.dto.SitePathRuleListRequest;
 import com.siteguard.monitor.entity.SitePathRule;
+import com.siteguard.monitor.probe.PathCheckType;
 import com.siteguard.monitor.mapper.SitePathRuleMapper;
 import com.siteguard.monitor.repository.SitePathRuleRepository;
 import com.siteguard.site.entity.Site;
@@ -111,7 +112,7 @@ class SitePathRuleServiceImplTest {
     void set_siteNotFound_throws() {
         when(siteRepo.findById(99L)).thenReturn(Optional.empty());
         var req = new SitePathRuleListRequest(99L, List.of(
-                new SitePathRuleDTO(null, 99L, "/a", 200, null, null, null, null)
+                new SitePathRuleDTO(null, 99L, "/a", 200, null, null, null, null, null, null, null)
         ));
 
         assertThrows(AppException.class, () -> service.set(req));
@@ -134,8 +135,8 @@ class SitePathRuleServiceImplTest {
         });
 
         var req = new SitePathRuleListRequest(1L, List.of(
-                new SitePathRuleDTO(10L, 1L, "/a", 200, null, null, null, null),
-                new SitePathRuleDTO(11L, 1L, "/b", 404, null, null, null, null)
+                new SitePathRuleDTO(10L, 1L, "/a", 200, null, null, null, null, null, null, null),
+                new SitePathRuleDTO(11L, 1L, "/b", 404, null, null, null, null, null, null, null)
         ));
 
         service.set(req);
@@ -179,7 +180,7 @@ class SitePathRuleServiceImplTest {
         });
 
         var req = new SitePathRuleListRequest(siteId, List.of(
-                new SitePathRuleDTO(null, siteId, "/api/v2", 200, null, null, null, null)
+                new SitePathRuleDTO(null, siteId, "/api/v2", 200, null, null, null, null, null, null, null)
         ));
 
         service.set(req);
@@ -225,6 +226,63 @@ class SitePathRuleServiceImplTest {
         service.delete(1L);
 
         verify(ruleRepo).deleteById(1L);
+    }
+
+    /// 构造测试用 DTO。字段顺序与 record 签名一致：
+    /// (id, siteId, path, expectedHttpStatus, checkType, expectedText,
+    ///  lastCheckedAt, lastHttpStatus, lastTextMatched, lastErrorMessage, alertingSince)
+    private SitePathRuleDTO dto(Long id, String path, Integer expectedHttpStatus,
+                                PathCheckType checkType, String expectedText) {
+        return new SitePathRuleDTO(id, 1L, path, expectedHttpStatus, checkType, expectedText,
+                null, null, null, null, null);
+    }
+
+    @Test
+    void set_keywordRuleRequiresExpectedText() {
+        // KEYWORD 模式 + expectedText 为空 → 400
+        var bad = dto(null, "/ok", 200, PathCheckType.KEYWORD, "  ");
+        when(siteRepo.findById(1L)).thenReturn(Optional.of(siteWithId1L()));
+
+        assertThrows(AppException.class,
+                () -> service.set(new SitePathRuleListRequest(1L, List.of(bad))));
+        verify(ruleRepo, never()).saveAll(any());
+    }
+
+    @Test
+    void set_httpStatusRuleRequiresExpectedHttpStatus() {
+        // HTTP_STATUS 模式 + expectedHttpStatus 为空 → 400
+        var bad = dto(null, "/ok", null, PathCheckType.HTTP_STATUS, null);
+        when(siteRepo.findById(1L)).thenReturn(Optional.of(siteWithId1L()));
+
+        assertThrows(AppException.class,
+                () -> service.set(new SitePathRuleListRequest(1L, List.of(bad))));
+        verify(ruleRepo, never()).saveAll(any());
+    }
+
+    @Test
+    void set_keywordRuleForcesLastTextMatchedNull() {
+        // KEYWORD 规则 set 后 last_text_matched 必须被置 null（防伪造）
+        var ok = dto(null, "/ok", 200, PathCheckType.KEYWORD, "SiteGuard");
+        when(siteRepo.findById(1L)).thenReturn(Optional.of(siteWithId1L()));
+        when(mapper.toEntity(any())).thenAnswer(inv -> {
+            SitePathRuleDTO d = inv.getArgument(0);
+            var e = new SitePathRule();
+            e.setId(d.id());
+            e.setSiteId(d.siteId());
+            e.setPath(d.path());
+            e.setExpectedHttpStatus(d.expectedHttpStatus());
+            e.setCheckType(d.checkType());
+            e.setExpectedText(d.expectedText());
+            e.setLastTextMatched(true); // 模拟前端伪造
+            return e;
+        });
+
+        service.set(new SitePathRuleListRequest(1L, List.of(ok)));
+
+        ArgumentCaptor<List<SitePathRule>> captor = ArgumentCaptor.forClass(List.class);
+        verify(ruleRepo).saveAll(captor.capture());
+        assertNull(captor.getValue().get(0).getLastTextMatched(),
+                "last_text_matched 必须被强制置 null");
     }
 
     private Site siteWithId1L() {
