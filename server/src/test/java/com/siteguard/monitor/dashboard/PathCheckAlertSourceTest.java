@@ -6,6 +6,7 @@ import com.siteguard.monitor.alert.detection.SiteCheckState;
 import com.siteguard.monitor.alert.detection.SiteCheckStateId;
 import com.siteguard.monitor.alert.detection.SiteCheckStateRepository;
 import com.siteguard.monitor.entity.SitePathRule;
+import com.siteguard.monitor.probe.PathCheckType;
 import com.siteguard.monitor.repository.SitePathRuleRepository;
 import com.siteguard.site.entity.Site;
 import org.junit.jupiter.api.Test;
@@ -55,6 +56,20 @@ class PathCheckAlertSourceTest {
         return r;
     }
 
+    private static SitePathRule keywordRule(long siteId, String path, String expectedText,
+                                            Boolean lastTextMatched, String err) {
+        var r = new SitePathRule();
+        r.setId(System.nanoTime());
+        r.setSiteId(siteId);
+        r.setPath(path);
+        r.setCheckType(PathCheckType.KEYWORD);
+        r.setExpectedText(expectedText);
+        r.setLastTextMatched(lastTextMatched);
+        r.setLastErrorMessage(err);
+        r.setLastCheckedAt(1000L);
+        return r;
+    }
+
     @Test
     void kind_returnsPathCheck() {
         assertEquals(AlertKind.PATH_CHECK, src.kind());
@@ -97,6 +112,56 @@ class PathCheckAlertSourceTest {
         when(stateRepo.findByAlertKind(AlertKind.PATH_CHECK)).thenReturn(List.of(
                 state(1L, "/api/orders", 1000L)));
         assertTrue(src.load(List.of()).isEmpty());
+    }
+
+    @Test
+    void keywordMode_notMatched_messageReflectsExpectedText() {
+        var s = site(1L, "https://s.example");
+        when(stateRepo.findByAlertKind(AlertKind.PATH_CHECK)).thenReturn(List.of(
+                state(1L, "/api/home", 1000L)));
+        when(ruleRepo.findBySiteIdOrderByIdAsc(1L)).thenReturn(List.of(
+                keywordRule(1L, "/api/home", "SiteGuard", false, null)));
+
+        var result = src.load(List.of(s));
+        assertEquals(1, result.size());
+        assertTrue(result.get(0).getMessage().contains("未包含期望文本"),
+                "消息应说明未包含期望文本，实际: " + result.get(0).getMessage());
+        assertTrue(result.get(0).getMessage().contains("SiteGuard"),
+                "消息应包含期望关键字，实际: " + result.get(0).getMessage());
+    }
+
+    @Test
+    void keywordMode_probeFailed_messageReflectsError() {
+        var s = site(1L, "https://s.example");
+        when(stateRepo.findByAlertKind(AlertKind.PATH_CHECK)).thenReturn(List.of(
+                state(1L, "/api/home", 1000L)));
+        when(ruleRepo.findBySiteIdOrderByIdAsc(1L)).thenReturn(List.of(
+                keywordRule(1L, "/api/home", "SiteGuard", null, "连接超时")));
+
+        var result = src.load(List.of(s));
+        assertEquals(1, result.size());
+        assertTrue(result.get(0).getMessage().contains("探测失败"),
+                "消息应说明探测失败，实际: " + result.get(0).getMessage());
+        assertTrue(result.get(0).getMessage().contains("连接超时"),
+                "消息应包含错误原因，实际: " + result.get(0).getMessage());
+        assertTrue(result.get(0).getMessage().contains("SiteGuard"),
+                "消息应包含期望关键字，实际: " + result.get(0).getMessage());
+    }
+
+    @Test
+    void keywordMode_probeFailedWithoutErrorMessage_messageUsesFallback() {
+        var s = site(1L, "https://s.example");
+        when(stateRepo.findByAlertKind(AlertKind.PATH_CHECK)).thenReturn(List.of(
+                state(1L, "/api/home", 1000L)));
+        when(ruleRepo.findBySiteIdOrderByIdAsc(1L)).thenReturn(List.of(
+                keywordRule(1L, "/api/home", "SiteGuard", null, null)));
+
+        var result = src.load(List.of(s));
+        assertEquals(1, result.size());
+        assertTrue(result.get(0).getMessage().contains("探测失败"),
+                "消息应说明探测失败，实际: " + result.get(0).getMessage());
+        assertTrue(result.get(0).getMessage().contains("结果缺失"),
+                "消息应使用兜底文案「结果缺失」，实际: " + result.get(0).getMessage());
     }
 
     @Test

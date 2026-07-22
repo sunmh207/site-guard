@@ -6,6 +6,7 @@ import com.siteguard.monitor.alert.AlertStatus;
 import com.siteguard.monitor.alert.detection.SiteCheckState;
 import com.siteguard.monitor.alert.detection.SiteCheckStateRepository;
 import com.siteguard.monitor.entity.SitePathRule;
+import com.siteguard.monitor.probe.PathCheckType;
 import com.siteguard.monitor.repository.SitePathRuleRepository;
 import com.siteguard.site.entity.Site;
 import lombok.RequiredArgsConstructor;
@@ -84,6 +85,25 @@ public class PathCheckAlertSource implements DashboardAlertSource {
         if (rule == null) {
             return "路径 " + pathKey + " 检测异常（规则已删除）";
         }
+        // KEYWORD 模式：消息聚焦于期望关键字与命中情况，HTTP 状态码已无意义；
+        // 与 PathCheckAlertDefinition.formatFailure 保持一致的文案风格，
+        // 避免 IM 通知与 dashboard 两套消息互相矛盾。
+        if (rule.getCheckType() == PathCheckType.KEYWORD) {
+            if (rule.getLastTextMatched() == null) {
+                // 探测本身失败/超时，body 尚未拿到，展示错误原因 + 期望关键字
+                String err = rule.getLastErrorMessage() == null ? "结果缺失" : rule.getLastErrorMessage();
+                return String.format("路径 %s 探测失败（%s），期望包含「%s」",
+                        pathKey, err, rule.getExpectedText());
+            }
+            if (rule.getLastTextMatched()) {
+                // body 命中关键字：isFailing 不会放 true 进来，但方法自身逻辑闭环——
+                // 命中即正常，不应出现在告警消息里，降级走通用文案。
+                return String.format("路径 %s 检测异常", pathKey);
+            }
+            // body 已拿到但未命中关键字
+            return String.format("路径 %s 未包含期望文本「%s」", pathKey, rule.getExpectedText());
+        }
+        // HTTP_STATUS：以下现有逻辑不变
         Integer got = rule.getLastHttpStatus();
         Integer expected = rule.getExpectedHttpStatus();
         if (got == null) {

@@ -10,6 +10,7 @@
 import { useIntervalFn, useFullscreen, useWakeLock } from '@vueuse/core'
 import { openSiteStatsApi } from '~/features/site/api/open-stats.api'
 import { useMessage } from '~/shared/composables/useMessage'
+import { useAlarmSound } from '~/shared/composables/useAlarmSound'
 import { ROUTES } from '~/shared/constants/routes'
 
 definePageMeta({ layout: 'open' })
@@ -63,6 +64,11 @@ if (!isDisabledByAdmin.value) {
 /// 进入全屏，与"大屏占满屏幕"语义一致。vueuse 自动监听 fullscreenchange 同步 isFullscreen。
 const { isFullscreen, isSupported, toggle } = useFullscreen(document.documentElement)
 
+/// 异常声音告警：abnormalCount > 0 时持续鸣响。用户需点击 Navbar 按钮解锁 AudioContext。
+const alarm = useAlarmSound({
+  abnormalCount: computed(() => data.value?.summary.abnormalCount ?? 0),
+})
+
 /// 集中兜底：浏览器拒绝（如未由用户手势触发 / 权限策略拦截）时降级 toast，不污染后续状态。
 const message = useMessage()
 
@@ -87,6 +93,23 @@ async function onToggleFullscreen() {
           >
             最后刷新：{{ formatTimestamp(lastRefreshedAt) }}
           </span>
+          <!-- 告警声音开关：仅数据已加载、未关闭时显示。
+               图标按状态切换：未开启→静音 / 已开启未响→音量低 / 正在响→音量高。 -->
+          <UButton
+            v-if="data && !isDisabledByAdmin"
+            variant="ghost"
+            color="neutral"
+            :icon="alarm.isPlaying.value
+              ? 'i-lucide-volume-2'
+              : alarm.enabled.value
+                ? 'i-lucide-volume-1'
+                : 'i-lucide-volume-x'"
+            :aria-label="alarm.enabled.value ? '关闭告警声音' : '开启告警声音'"
+            data-testid="open-dashboard-alarm-toggle"
+            @click="alarm.toggle"
+          >
+            {{ alarm.enabled.value ? '关闭告警' : '开启告警声音' }}
+          </UButton>
           <!-- 全屏按钮：仅数据已加载、未关闭、浏览器支持时显示；
                图标/文案按 isFullscreen 切换，匹配「未全屏→最大化」「已全屏→最小化」语义。 -->
           <UButton
