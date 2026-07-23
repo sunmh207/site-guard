@@ -3,7 +3,7 @@
 ///
 /// - 走 open layout：暗色、无侧边栏、无登录 UI
 /// - 通过 openSiteStatsApi 调 GET /site/stats/dashboard，不带 Authorization
-/// - 2 分钟自动轮询；useWakeLock 防止浏览器休眠断流
+/// - 1 分钟自动轮询；useWakeLock 防止浏览器休眠断流
 /// - 失败/掉线降级：保留「最后成功时间」，渲染错误角标而不是黑屏
 /// - 404（管理员未开启）→ 显示「未开启」友好提示页，不展示任何数据，
 ///   避免「页面在但内容没数据」被外部观察者误认为可用
@@ -49,10 +49,10 @@ function formatTimestamp(ms: number | null): string {
          `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
 }
 
-/// 每 2 分钟自动刷新一次。
+/// 每 1 分钟自动刷新一次。
 useIntervalFn(() => {
   doRefresh()
-}, 120_000)
+}, 60_000)
 
 /// 申请屏幕常亮（防休眠）。浏览器拒绝时静默降级。
 /// 注意：关闭态（404）下不申请唤醒——访客看个提示页不该让屏幕常亮。
