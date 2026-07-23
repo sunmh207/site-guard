@@ -114,9 +114,7 @@ async function onToggleFullscreen() {
             :aria-label="alarm.enabled.value ? '关闭告警声音' : '开启告警声音'"
             data-testid="open-dashboard-alarm-toggle"
             @click="alarm.toggle"
-          >
-            {{ alarm.enabled.value ? '关闭告警' : '开启告警声音' }}
-          </UButton>
+          />
           <!-- 全屏按钮：仅数据已加载、未关闭、浏览器支持时显示；
                图标/文案按 isFullscreen 切换，匹配「未全屏→最大化」「已全屏→最小化」语义。 -->
           <UButton
@@ -127,9 +125,7 @@ async function onToggleFullscreen() {
             :aria-label="isFullscreen ? '退出全屏' : '进入全屏'"
             data-testid="open-dashboard-fullscreen-toggle"
             @click="onToggleFullscreen"
-          >
-            {{ isFullscreen ? '退出全屏' : '全屏' }}
-          </UButton>
+          />
           <span
             v-if="error && !isDisabledByAdmin"
             class="text-sm text-error"
