@@ -85,7 +85,14 @@ async function onToggleFullscreen() {
 <template>
   <UDashboardPanel id="open-dashboard">
     <template #header>
-      <UDashboardNavbar title="Site Guard 监控大屏">
+      <UDashboardNavbar>
+        <template #title>
+          <span class="flex items-center gap-3">
+            <span>Site Guard 监控大屏</span>
+            <span class="h-3 w-px bg-(--ui-text-muted) opacity-50"></span>
+            <span class="text-xs font-normal text-(--ui-text-muted)">不让故障，悄悄发生</span>
+          </span>
+        </template>
         <template #right>
           <span
             v-if="lastRefreshedAt !== null"
