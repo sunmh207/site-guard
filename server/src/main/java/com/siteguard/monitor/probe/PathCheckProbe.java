@@ -1,7 +1,10 @@
 package com.siteguard.monitor.probe;
 
+import com.siteguard.monitor.entity.CheckStatus;
 import com.siteguard.monitor.entity.SitePathRule;
+import com.siteguard.monitor.entity.SitePathCheckHistory;
 import com.siteguard.monitor.repository.SitePathRuleRepository;
+import com.siteguard.monitor.repository.SitePathCheckHistoryRepository;
 import com.siteguard.site.entity.Site;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -35,12 +38,9 @@ import javax.net.ssl.HttpsURLConnection;
 /// 站点自定义子路由探测组件。
 ///
 /// 在 SiteCheckServiceImpl.checkOne(site) 末尾调用，对该站点的所有 path rule
-/// 各做一次 HTTP GET，把结果回写到规则行的 last_* 字段。
+/// 各做一次 HTTP GET，把结果回写到规则行的 last_* 字段，并写一条 site_path_check_history 历史。
 ///
-/// 不写 site_check_history；只更新规则行自身。理由：
-/// 1. 失败时没有 HTTP 状态可入 history（连接失败）
-/// 2. 检测层只读最新值，不需要历史序列
-/// 3. 站点详情页直接展示"上次探测"即可
+/// 历史写入的异常被吞掉（log warn）—— 写历史失败不影响规则行自身落盘，也不影响其他规则探测。
 ///
 /// 单条规则探测失败被吞掉（log warn）—— 一条规则坏掉不影响同站其他规则，也不影响主探测流程。
 ///
@@ -75,22 +75,24 @@ public class PathCheckProbe {
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36";
 
     private final SitePathRuleRepository ruleRepo;
+    private final SitePathCheckHistoryRepository historyRepo;
     /// 共享的 plain HTTP client（无 SSL 配置，开销小）
     private final HttpClient httpClient;
 
     /// 生产用构造器：自己 new 一个 5s 超时、followRedirects=NORMAL 的 plain client，
     /// 不依赖 Spring 容器里的 HttpClient bean（与 HttpSiteProbe / RdapClient 一致）。
     @Autowired
-    public PathCheckProbe(SitePathRuleRepository ruleRepo) {
-        this(ruleRepo, HttpClient.newBuilder()
+    public PathCheckProbe(SitePathRuleRepository ruleRepo, SitePathCheckHistoryRepository historyRepo) {
+        this(ruleRepo, historyRepo, HttpClient.newBuilder()
                 .followRedirects(HttpClient.Redirect.NORMAL)
                 .connectTimeout(TIMEOUT)
                 .build());
     }
 
     /// 测试用构造器：注入自定义 HttpClient
-    PathCheckProbe(SitePathRuleRepository ruleRepo, HttpClient httpClient) {
+    PathCheckProbe(SitePathRuleRepository ruleRepo, SitePathCheckHistoryRepository historyRepo, HttpClient httpClient) {
         this.ruleRepo = ruleRepo;
+        this.historyRepo = historyRepo;
         this.httpClient = httpClient;
     }
 
@@ -138,6 +140,32 @@ public class PathCheckProbe {
         boolean failed = SitePathRule.isFailing(rule);
         int currentCounter = rule.getConsecutiveFailures();
         rule.setConsecutiveFailures(failed ? currentCounter + 1 : 0);
+
+        /// 写探测历史：失败只 log，不影响规则行落盘与后续规则探测。
+        /// 历史是排查用的"nice-to-have"，不能因为历史写失败而让主流程退步。
+        try {
+            var history = new SitePathCheckHistory();
+            history.setSiteId(rule.getSiteId());
+            history.setRuleId(rule.getId());
+            history.setPath(rule.getPath());
+            history.setCheckedAt(checkedAt);
+            history.setStatus(toHistoryStatus(outcome));
+            history.setHttpStatus(outcome.httpStatus());
+            history.setTextMatched(outcome.textMatched());
+            history.setErrorMessage(outcome.errorMessage());
+            historyRepo.save(history);
+        } catch (RuntimeException e) {
+            log.warn("save path check history for site={} rule={}: {}",
+                    rule.getSiteId(), rule.getId(), e.getMessage());
+        }
+    }
+
+    /// 把探测结果映射为历史行的 status。
+    /// - errorMessage 非 null → 探测本身失败（超时/连接失败/SSL 等）→ ERROR
+    /// - errorMessage 为 null → 拿到响应，视为 UP（无论 HTTP 状态码是否匹配期望）。
+    ///   历史记录的是"探测动作是否完成"，状态码不匹配的"业务失败"由前端/告警层解释。
+    private CheckStatus toHistoryStatus(PathProbeOutcome outcome) {
+        return outcome.errorMessage() != null ? CheckStatus.ERROR : CheckStatus.UP;
     }
 
     /// 探测单条 path rule。

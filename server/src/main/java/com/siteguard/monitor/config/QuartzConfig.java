@@ -4,6 +4,7 @@ import com.siteguard.domain.job.DomainCheckJob;
 import com.siteguard.monitor.job.AlertDetectionJob;
 import com.siteguard.monitor.job.SiteCheckJob;
 import com.siteguard.monitor.job.SiteHistoryCleanupJob;
+import com.siteguard.monitor.job.SitePathHistoryCleanupJob;
 import org.quartz.CronScheduleBuilder;
 import org.quartz.JobBuilder;
 import org.quartz.JobDetail;
@@ -19,6 +20,7 @@ import org.springframework.context.annotation.Configuration;
 /// - alertDetectionJob   ：每分钟 :30（"30 * * * * ?"，与探测错开 30s）
 /// - domainCheckJob      ：每天 02:00（"0 0 2 * * ?"）
 /// - siteHistoryCleanupJob：每天 03:00（"0 0 3 * * ?"）
+/// - sitePathHistoryCleanupJob：每天 03:10（"0 10 3 * * ?"，与站点历史清理错开 10 分钟）
 ///
 /// 表结构由 Flyway V20260630112000 提供；JDBC store 由 application.yaml 的
 /// spring.quartz.job-store-type=jdbc 启用。
@@ -73,6 +75,23 @@ public class QuartzConfig {
                 .forJob(siteHistoryCleanupJobDetail)
                 .withIdentity("siteHistoryCleanupTrigger")
                 .withSchedule(CronScheduleBuilder.cronSchedule("0 0 3 * * ?"))
+                .build();
+    }
+
+    @Bean
+    public JobDetail sitePathHistoryCleanupJobDetail() {
+        return JobBuilder.newJob(SitePathHistoryCleanupJob.class)
+                .withIdentity("sitePathHistoryCleanupJob")
+                .storeDurably()
+                .build();
+    }
+
+    @Bean
+    public Trigger sitePathHistoryCleanupTrigger(JobDetail sitePathHistoryCleanupJobDetail) {
+        return TriggerBuilder.newTrigger()
+                .forJob(sitePathHistoryCleanupJobDetail)
+                .withIdentity("sitePathHistoryCleanupTrigger")
+                .withSchedule(CronScheduleBuilder.cronSchedule("0 10 3 * * ?"))
                 .build();
     }
 

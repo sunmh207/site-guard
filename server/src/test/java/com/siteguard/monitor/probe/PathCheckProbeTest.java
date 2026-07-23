@@ -1,6 +1,7 @@
 package com.siteguard.monitor.probe;
 
 import com.siteguard.monitor.entity.SitePathRule;
+import com.siteguard.monitor.repository.SitePathCheckHistoryRepository;
 import com.siteguard.monitor.repository.SitePathRuleRepository;
 import com.siteguard.monitor.probe.TestCerts.Issued;
 import com.siteguard.site.entity.Site;
@@ -57,13 +58,16 @@ class PathCheckProbeTest {
     @Mock
     SitePathRuleRepository ruleRepo;
 
+    @Mock
+    SitePathCheckHistoryRepository historyRepo;
+
     @BeforeEach
     void setUp() throws IOException {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
         server.start();
         // 构造时注入测试用 HttpClient
-        probe = new PathCheckProbe(ruleRepo, HttpClient.newHttpClient());
+        probe = new PathCheckProbe(ruleRepo, historyRepo, HttpClient.newHttpClient());
     }
 
     @AfterEach
@@ -180,7 +184,7 @@ class PathCheckProbeTest {
                 .onPath("/bad", StubOutcome.throwIo(new IOException("connection reset")))
                 .onPath("/ok", StubOutcome.status(200))
                 .build();
-        var stubProbe = new PathCheckProbe(ruleRepo, stub);
+        var stubProbe = new PathCheckProbe(ruleRepo, historyRepo, stub);
 
         var r1 = rule("/bad", 200);
         var r2 = rule("/ok", 200);
@@ -207,7 +211,7 @@ class PathCheckProbeTest {
         var stub = StubHttpClient.builder()
                 .onPath("/slow", StubOutcome.throwOf(HttpTimeoutException.class, "request timed out"))
                 .build();
-        var stubProbe = new PathCheckProbe(ruleRepo, stub);
+        var stubProbe = new PathCheckProbe(ruleRepo, historyRepo, stub);
 
         var r = rule("/slow", 200);
         when(ruleRepo.findBySiteIdOrderByIdAsc(1L)).thenReturn(List.of(r));
@@ -224,7 +228,7 @@ class PathCheckProbeTest {
         var stub = StubHttpClient.builder()
                 .onPath("/slow", StubOutcome.throwOf(InterruptedException.class, "interrupted"))
                 .build();
-        var stubProbe = new PathCheckProbe(ruleRepo, stub);
+        var stubProbe = new PathCheckProbe(ruleRepo, historyRepo, stub);
 
         var r = rule("/slow", 200);
         when(ruleRepo.findBySiteIdOrderByIdAsc(1L)).thenReturn(List.of(r));
@@ -261,6 +265,63 @@ class PathCheckProbeTest {
         assertTrue(captor.getValue().size() == 2);
     }
 
+    // ---------- 探测历史写入测试 ----------
+
+    @Test
+    void writeOutcome_savesHistoryRow() {
+        // 探测成功（200 == 期望 200）→ 应写一条 status=UP 的历史
+        server.createContext("/hist-ok", ex -> {
+            ex.sendResponseHeaders(200, -1);
+            ex.close();
+        });
+        var r = rule("/hist-ok", 200);
+        when(ruleRepo.findBySiteIdOrderByIdAsc(1L)).thenReturn(List.of(r));
+
+        probe.probe(site());
+
+        verify(historyRepo).save(argThat((com.siteguard.monitor.entity.SitePathCheckHistory h) ->
+                h.getRuleId() != null
+                        && h.getRuleId().equals(r.getId())
+                        && "/hist-ok".equals(h.getPath())
+                        && h.getStatus() == com.siteguard.monitor.entity.CheckStatus.UP
+                        && h.getHttpStatus() != null && h.getHttpStatus() == 200
+                        && h.getErrorMessage() == null));
+    }
+
+    @Test
+    void writeOutcome_probeFailed_savesHistoryWithErrorStatus() {
+        // 连接失败 → status=ERROR + errorMessage 非 null
+        var s = site();
+        s.setUrl("http://127.0.0.1:1");
+        var r = rule("/hist-fail", 200);
+        when(ruleRepo.findBySiteIdOrderByIdAsc(1L)).thenReturn(List.of(r));
+
+        probe.probe(s);
+
+        verify(historyRepo).save(argThat((com.siteguard.monitor.entity.SitePathCheckHistory h) ->
+                h.getStatus() == com.siteguard.monitor.entity.CheckStatus.ERROR
+                        && h.getHttpStatus() == null
+                        && h.getErrorMessage() != null));
+    }
+
+    @Test
+    void writeOutcome_historyWriteFailure_doesNotPreventRuleSave() {
+        // 历史写失败（如 DB 异常）不能阻塞规则行自身的落盘
+        server.createContext("/hist-err", ex -> {
+            ex.sendResponseHeaders(200, -1);
+            ex.close();
+        });
+        var r = rule("/hist-err", 200);
+        when(ruleRepo.findBySiteIdOrderByIdAsc(1L)).thenReturn(List.of(r));
+        when(historyRepo.save(any())).thenThrow(new RuntimeException("DB down"));
+
+        // 不应抛异常
+        assertDoesNotThrow(() -> probe.probe(site()));
+
+        // 规则行仍正常落盘
+        verify(ruleRepo).saveAll(any());
+    }
+
     // ---------- 连续失败 counter 维护测试 ----------
 
     @Test
@@ -269,7 +330,7 @@ class PathCheckProbeTest {
         var stub = StubHttpClient.builder()
                 .onPath("/api/orders", StubOutcome.status(500))
                 .build();
-        var stubProbe = new PathCheckProbe(ruleRepo, stub);
+        var stubProbe = new PathCheckProbe(ruleRepo, historyRepo, stub);
 
         var r = rule("/api/orders", 200);
         r.setConsecutiveFailures(0);
@@ -289,7 +350,7 @@ class PathCheckProbeTest {
         var stub = StubHttpClient.builder()
                 .onPath("/api/orders", StubOutcome.status(200))
                 .build();
-        var stubProbe = new PathCheckProbe(ruleRepo, stub);
+        var stubProbe = new PathCheckProbe(ruleRepo, historyRepo, stub);
 
         var r = rule("/api/orders", 200);
         r.setConsecutiveFailures(5);
@@ -311,7 +372,7 @@ class PathCheckProbeTest {
         var stub = StubHttpClient.builder()
                 .onPath("/api/orders", StubOutcome.throwOf(RuntimeException.class, "boom"))
                 .build();
-        var stubProbe = new PathCheckProbe(ruleRepo, stub);
+        var stubProbe = new PathCheckProbe(ruleRepo, historyRepo, stub);
 
         var r = rule("/api/orders", 200);
         r.setConsecutiveFailures(3);

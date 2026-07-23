@@ -2,10 +2,12 @@ package com.siteguard.api.admin;
 
 import com.siteguard.common.dto.IdPayload;
 import com.siteguard.common.dto.StatusResult;
+import com.siteguard.monitor.dto.SitePathCheckHistoryDTO;
 import com.siteguard.monitor.dto.SitePathRuleDTO;
 import com.siteguard.monitor.dto.SitePathRuleListRequest;
 import com.siteguard.monitor.service.SitePathRuleService;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -14,6 +16,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -54,5 +57,17 @@ public class AdminSitePathRuleController {
     public StatusResult<Void> delete(@Valid @RequestBody IdPayload payload) {
         service.delete(payload.getId());
         return StatusResult.ok();
+    }
+
+    /// 某条路径规则的最近探测历史（按 checked_at 倒序）。
+    /// - 路径风格：与 /pathRule/delete 一致，按动作命名；ruleId 已唯一标识规则，不再嵌套 siteId
+    /// - limit 默认 30；服务端在 service 层做了 30 的硬上限钳制
+    /// - 不分页：返回固定数量的最新记录，UI 用 slideover 表格展示
+    @Operation(summary = "某条路径规则的最近探测历史")
+    @GetMapping("/pathRule/history/get")
+    public List<SitePathCheckHistoryDTO> recentHistory(
+            @RequestParam @Parameter(description = "路径规则 ID", required = true) Long ruleId,
+            @RequestParam(defaultValue = "30") @Parameter(description = "返回条数，默认 30，最大 30") int limit) {
+        return service.listRecentHistory(ruleId, limit);
     }
 }

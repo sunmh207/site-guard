@@ -15,6 +15,7 @@ import { onMounted, ref } from 'vue'
 import { adminSitePathRuleApi } from '../api/site-path-rule.api'
 import type { SitePathRuleDto } from '../types/site-path-rule.dto'
 import {UButton} from "#components";
+import SitePathCheckHistorySlideover from './SitePathCheckHistorySlideover.vue'
 
 const props = withDefaults(defineProps<{
   siteId: number
@@ -28,6 +29,16 @@ const rules = ref<SitePathRuleDto[]>([])
 const loading = ref(false)
 const saving = ref(false)
 const errorMessage = ref<string | null>(null)
+
+/// 探测历史 slideover 状态：点击某行"历史"按钮时设置目标规则，打开 slideover。
+const historyOpen = ref(false)
+const historyRule = ref<SitePathRuleDto | null>(null)
+
+/// 打开某条规则的探测历史 slideover。
+function openHistory(rule: SitePathRuleDto) {
+  historyRule.value = rule
+  historyOpen.value = true
+}
 
 const newRule = (): SitePathRuleDto => ({
   id: null,
@@ -125,7 +136,7 @@ onMounted(load)
 // 使用 plain object 数组以避免引入 @tanstack/vue-table 类型依赖
 import type { SitePathRuleDto } from '../types/site-path-rule.dto'
 
-const columns: Array<{ accessorKey: keyof SitePathRuleDto | 'actions'; header: string }> = [
+const columns: Array<{ accessorKey: keyof SitePathRuleDto | 'actions' | 'history'; header: string }> = [
   { accessorKey: 'path', header: '路径' },
   { accessorKey: 'checkType', header: '判定类型' },
   { accessorKey: 'expectedText', header: '期望内容' },
@@ -133,6 +144,7 @@ const columns: Array<{ accessorKey: keyof SitePathRuleDto | 'actions'; header: s
   { accessorKey: 'lastErrorMessage', header: '错误' },
   { accessorKey: 'lastCheckedAt', header: '上次探测时间' },
   { accessorKey: 'alertingSince', header: '当前状态' },
+  { accessorKey: 'history', header: '历史' },
   { accessorKey: 'actions', header: '操作' },
 ]
 </script>
@@ -194,6 +206,22 @@ const columns: Array<{ accessorKey: keyof SitePathRuleDto | 'actions'; header: s
           异常 {{ formatTimestamp(row.original.alertingSince) }}
         </UBadge>
         <span v-else class="text-(--ui-text-muted)">正常</span>
+      </template>
+      <template #history-cell="{ row }">
+        <!--
+          "历史"按钮：仅已有规则（id 非 null）可查看历史；新增未保存的行无 id，无历史可查。
+          点击后打开该路径规则的探测历史 slideover。
+        -->
+        <UButton
+          v-if="row.original.id != null"
+          icon="i-lucide-history"
+          label="历史"
+          color="neutral"
+          variant="ghost"
+          size="xs"
+          @click="openHistory(row.original)"
+        />
+        <span v-else class="text-(--ui-text-muted)">—</span>
       </template>
       <template #actions-cell="{ row }">
         <UButton
@@ -264,6 +292,18 @@ const columns: Array<{ accessorKey: keyof SitePathRuleDto | 'actions'; header: s
         </UBadge>
         <span v-else class="text-(--ui-text-muted)">正常</span>
       </template>
+      <template #history-cell="{ row }">
+        <UButton
+          v-if="row.original.id != null"
+          icon="i-lucide-history"
+          label="历史"
+          color="neutral"
+          variant="ghost"
+          size="xs"
+          @click="openHistory(row.original)"
+        />
+        <span v-else class="text-(--ui-text-muted)">—</span>
+      </template>
       <template #actions-cell="{ row }">
         <UButton
           v-if="row.original.id != null"
@@ -280,4 +320,17 @@ const columns: Array<{ accessorKey: keyof SitePathRuleDto | 'actions'; header: s
       bare 模式下不渲染"保存"按钮，由外层 slideover footer 提供（与 SiteEditSlideover 等保持一致）
     -->
   </div>
+
+  <!--
+    探测历史 slideover：根层级，bare/非 bare 两种模式共用一个实例。
+    仅在 historyRule 已设置时挂载。
+    注意：bare 模式下本组件在外层 SitePathRuleSlideover 内部，再打开一个 slideover 会形成嵌套。
+    Nuxt UI 的 USlideover 支持嵌套（reka-ui 的 DialogStack），所以行为正确。
+  -->
+  <SitePathCheckHistorySlideover
+    v-if="historyRule"
+    v-model:open="historyOpen"
+    :rule-id="historyRule.id!"
+    :rule-path="historyRule.path"
+  />
 </template>

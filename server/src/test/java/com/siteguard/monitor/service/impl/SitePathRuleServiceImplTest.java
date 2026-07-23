@@ -5,11 +5,15 @@ import com.siteguard.monitor.alert.AlertKind;
 import com.siteguard.monitor.alert.detection.SiteCheckState;
 import com.siteguard.monitor.alert.detection.SiteCheckStateId;
 import com.siteguard.monitor.alert.detection.SiteCheckStateRepository;
+import com.siteguard.monitor.dto.SitePathCheckHistoryDTO;
 import com.siteguard.monitor.dto.SitePathRuleDTO;
 import com.siteguard.monitor.dto.SitePathRuleListRequest;
+import com.siteguard.monitor.entity.CheckStatus;
+import com.siteguard.monitor.entity.SitePathCheckHistory;
 import com.siteguard.monitor.entity.SitePathRule;
 import com.siteguard.monitor.probe.PathCheckType;
 import com.siteguard.monitor.mapper.SitePathRuleMapper;
+import com.siteguard.monitor.repository.SitePathCheckHistoryRepository;
 import com.siteguard.monitor.repository.SitePathRuleRepository;
 import com.siteguard.site.entity.Site;
 import com.siteguard.site.repository.SiteRepository;
@@ -19,6 +23,8 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 
 import java.util.List;
 import java.util.Optional;
@@ -29,6 +35,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -40,6 +47,7 @@ class SitePathRuleServiceImplTest {
     @Mock SiteRepository siteRepo;
     @Mock SitePathRuleMapper mapper;
     @Mock SiteCheckStateRepository stateRepo;
+    @Mock SitePathCheckHistoryRepository historyRepo;
     @InjectMocks SitePathRuleServiceImpl service;
 
     @Test
@@ -283,6 +291,70 @@ class SitePathRuleServiceImplTest {
         verify(ruleRepo).saveAll(captor.capture());
         assertNull(captor.getValue().get(0).getLastTextMatched(),
                 "last_text_matched 必须被强制置 null");
+    }
+
+    @Test
+    void listRecentHistory_returnsMappedDTOs() {
+        long ruleId = 42L;
+        var h1 = new SitePathCheckHistory();
+        h1.setId(1L);
+        h1.setSiteId(1L);
+        h1.setRuleId(ruleId);
+        h1.setPath("/api");
+        h1.setCheckedAt(2000L);
+        h1.setStatus(CheckStatus.UP);
+        h1.setHttpStatus(200);
+        h1.setTextMatched(null);
+        h1.setErrorMessage(null);
+        var h2 = new SitePathCheckHistory();
+        h2.setId(2L);
+        h2.setSiteId(1L);
+        h2.setRuleId(ruleId);
+        h2.setPath("/api");
+        h2.setCheckedAt(1000L);
+        h2.setStatus(CheckStatus.ERROR);
+        h2.setHttpStatus(null);
+        h2.setTextMatched(null);
+        h2.setErrorMessage("timeout");
+
+        when(historyRepo.findByRuleIdOrderByCheckedAtDesc(eq(ruleId), any(Pageable.class)))
+                .thenReturn(List.of(h1, h2));
+
+        var result = service.listRecentHistory(ruleId, 30);
+
+        assertEquals(2, result.size());
+        // 第一条：UP + httpStatus=200
+        assertEquals(CheckStatus.UP, result.get(0).status());
+        assertEquals(200, result.get(0).httpStatus());
+        // 第二条：ERROR + errorMessage
+        assertEquals(CheckStatus.ERROR, result.get(1).status());
+        assertEquals("timeout", result.get(1).errorMessage());
+        // 验证 limit 传入（30 在硬上限内，直接透传）
+        verify(historyRepo).findByRuleIdOrderByCheckedAtDesc(eq(ruleId), eq(PageRequest.of(0, 30)));
+    }
+
+    @Test
+    void listRecentHistory_clampsLimitToMax() {
+        long ruleId = 42L;
+        when(historyRepo.findByRuleIdOrderByCheckedAtDesc(eq(ruleId), any(Pageable.class)))
+                .thenReturn(List.of());
+
+        service.listRecentHistory(ruleId, 999);
+
+        // 超过硬上限 30 → 钳制到 30
+        verify(historyRepo).findByRuleIdOrderByCheckedAtDesc(eq(ruleId), eq(PageRequest.of(0, 30)));
+    }
+
+    @Test
+    void listRecentHistory_clampsNegativeLimitToOne() {
+        long ruleId = 42L;
+        when(historyRepo.findByRuleIdOrderByCheckedAtDesc(eq(ruleId), any(Pageable.class)))
+                .thenReturn(List.of());
+
+        service.listRecentHistory(ruleId, -5);
+
+        // 负数 → 钳制到 1
+        verify(historyRepo).findByRuleIdOrderByCheckedAtDesc(eq(ruleId), eq(PageRequest.of(0, 1)));
     }
 
     private Site siteWithId1L() {

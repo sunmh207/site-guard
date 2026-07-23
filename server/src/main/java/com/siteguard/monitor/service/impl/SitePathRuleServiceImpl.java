@@ -4,15 +4,19 @@ import com.siteguard.common.exception.Errors;
 import com.siteguard.monitor.alert.AlertKind;
 import com.siteguard.monitor.alert.detection.SiteCheckState;
 import com.siteguard.monitor.alert.detection.SiteCheckStateRepository;
+import com.siteguard.monitor.dto.SitePathCheckHistoryDTO;
 import com.siteguard.monitor.dto.SitePathRuleDTO;
 import com.siteguard.monitor.dto.SitePathRuleListRequest;
+import com.siteguard.monitor.entity.SitePathCheckHistory;
 import com.siteguard.monitor.entity.SitePathRule;
 import com.siteguard.monitor.mapper.SitePathRuleMapper;
 import com.siteguard.monitor.probe.PathCheckType;
+import com.siteguard.monitor.repository.SitePathCheckHistoryRepository;
 import com.siteguard.monitor.repository.SitePathRuleRepository;
 import com.siteguard.monitor.service.SitePathRuleService;
 import com.siteguard.site.repository.SiteRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -33,10 +37,15 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class SitePathRuleServiceImpl implements SitePathRuleService {
 
+    /// 探测历史 slideover 的硬上限：listRecentHistory 不论外部传多少，最多返回 MAX_RECENT_HISTORY 条。
+    /// 与 SiteCheckServiceImpl.MAX_RECENT_HISTORY 保持一致（前端默认 30）。
+    private static final int MAX_RECENT_HISTORY = 30;
+
     private final SitePathRuleRepository ruleRepo;
     private final SiteRepository siteRepo;
     private final SitePathRuleMapper mapper;
     private final SiteCheckStateRepository stateRepo;
+    private final SitePathCheckHistoryRepository historyRepo;
 
     @Override
     @Transactional(readOnly = true)
@@ -117,5 +126,24 @@ public class SitePathRuleServiceImpl implements SitePathRuleService {
             return;  // 幂等：不存在不抛
         }
         ruleRepo.deleteById(ruleId);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<SitePathCheckHistoryDTO> listRecentHistory(Long ruleId, int limit) {
+        /// 钳制 limit：下限 1、上限 MAX_RECENT_HISTORY。外部传 0/负数/超大值都收敛到合法范围。
+        int safeLimit = Math.max(1, Math.min(limit, MAX_RECENT_HISTORY));
+        var pageable = PageRequest.of(0, safeLimit);
+        return historyRepo.findByRuleIdOrderByCheckedAtDesc(ruleId, pageable).stream()
+                .map(SitePathRuleServiceImpl::toHistoryDto)
+                .toList();
+    }
+
+    /// entity → DTO 映射。当前两表字段基本 1:1，未来 DTO 加展示字段只在这里改。
+    private static SitePathCheckHistoryDTO toHistoryDto(SitePathCheckHistory h) {
+        return new SitePathCheckHistoryDTO(
+                h.getId(), h.getSiteId(), h.getRuleId(), h.getPath(),
+                h.getCheckedAt(), h.getStatus(), h.getHttpStatus(),
+                h.getTextMatched(), h.getErrorMessage());
     }
 }

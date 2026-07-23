@@ -98,6 +98,34 @@ class AdminSitePathRuleControllerTest {
     }
 
     @Test
+    void recentHistory_returnsList() throws Exception {
+        when(service.listRecentHistory(10L, 30)).thenReturn(List.of(
+                new com.siteguard.monitor.dto.SitePathCheckHistoryDTO(
+                        1L, 1L, 10L, "/api", 1_700_000_000_000L,
+                        com.siteguard.monitor.entity.CheckStatus.UP,
+                        200, null, null)
+        ));
+
+        mvc.perform(get("/api/v1/admin/site/pathRule/history/get")
+                        .param("ruleId", "10"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].ruleId").value(10))
+                .andExpect(jsonPath("$[0].path").value("/api"))
+                .andExpect(jsonPath("$[0].status").value("UP"))
+                .andExpect(jsonPath("$[0].httpStatus").value(200));
+
+        verify(service).listRecentHistory(10L, 30);
+    }
+
+    @Test
+    void recentHistory_missingRuleId_returns400() throws Exception {
+        // ruleId 是 @RequestParam required=true（默认），不传应 400
+        mvc.perform(get("/api/v1/admin/site/pathRule/history/get"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     void deleteById_callsService() throws Exception {
         var payload = new IdPayload();
         payload.setId(10L);
