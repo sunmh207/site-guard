@@ -1,15 +1,11 @@
 <h1 align="center">
   <img src="docs/imgs/logo.jpg" alt="site-guard" width="64" height="64" />
   <br />
-  site-guard
+  Site Guard —— 不让故障,悄悄发生
 </h1>
 
 <p align="center">
-  <font size="5"><b><i>不让故障,悄悄发生</i></b></font><br />
-</p>
-
-<p align="center">
-  对站点的可用性、证书有效期、关键路径进行持续巡检,<br />
+  对站点的可用性、证书有效期、关键路径进行持续巡检。
   异常时自动推送钉钉 / 飞书 / 企业微信。
 </p>
 
