@@ -14,7 +14,7 @@
     <img src="https://img.shields.io/badge/Docker-Compose-2496ED?style=flat-square&logo=docker" alt="Docker" />
   </a>
   <a href="https://www.java.com/">
-    <img src="https://img.shields.io/badge/Java-17-ED8B00?style=flat-square&logo=openjdk" alt="Java 17" />
+    <img src="https://img.shields.io/badge/Java-25-ED8B00?style=flat-square&logo=openjdk" alt="Java 17" />
   </a>
   <a href="https://nuxt.com/">
     <img src="https://img.shields.io/badge/Nuxt-3-00DC82?style=flat-square&logo=nuxt" alt="Nuxt 3" />
