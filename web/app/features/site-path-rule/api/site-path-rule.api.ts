@@ -3,7 +3,7 @@
 /// 路径风格遵循项目惯例：仅 GET/POST，按动作命名（get/set/delete）。
 /// useAdminApi / $adminApi 由 ~/api/admin-api-client 提供，自动加 /api/v1/admin 前缀与 JWT。
 import { $adminApi } from '~/api/admin-api-client'
-import type { SitePathRuleDto, SitePathRuleListRequest } from '../types/site-path-rule.dto'
+import type { SitePathRuleDto, SitePathRuleListRequest, SitePathRuleTestRequest, SitePathRuleTestResultDto } from '../types/site-path-rule.dto'
 import type { StatusResult } from '~/shared/types/api'
 
 export const adminSitePathRuleApi = {
@@ -24,6 +24,17 @@ export const adminSitePathRuleApi = {
     return await $adminApi<StatusResult<void>>(
       `/site/${siteId}/pathRules/set`,
       { method: 'POST', body },
+    )
+  },
+
+  /// 测试尚未保存的规则；只发起一次探测，不修改规则或历史。
+  async testPathRule(
+    siteId: number,
+    request: SitePathRuleTestRequest,
+  ): Promise<StatusResult<SitePathRuleTestResultDto>> {
+    return await $adminApi<StatusResult<SitePathRuleTestResultDto>>(
+      `/site/${siteId}/pathRule/test`,
+      { method: 'POST', body: request },
     )
   },
 

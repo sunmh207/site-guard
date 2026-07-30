@@ -16,6 +16,7 @@ import { adminSitePathRuleApi } from '../api/site-path-rule.api'
 import type { SitePathRuleDto } from '../types/site-path-rule.dto'
 import {UButton} from "#components";
 import SitePathCheckHistorySlideover from './SitePathCheckHistorySlideover.vue'
+import JsonAssertionSlideover from './JsonAssertionSlideover.vue'
 
 const props = withDefaults(defineProps<{
   siteId: number
@@ -33,6 +34,18 @@ const errorMessage = ref<string | null>(null)
 /// 探测历史 slideover 状态：点击某行"历史"按钮时设置目标规则，打开 slideover。
 const historyOpen = ref(false)
 const historyRule = ref<SitePathRuleDto | null>(null)
+const jsonConfigOpen = ref(false)
+const jsonConfigIndex = ref<number | null>(null)
+
+function openJsonConfig(rule: SitePathRuleDto) {
+  jsonConfigIndex.value = rules.value.indexOf(rule)
+  jsonConfigOpen.value = true
+}
+
+function applyJsonConfig(rule: SitePathRuleDto) {
+  if (jsonConfigIndex.value == null || jsonConfigIndex.value < 0) return
+  rules.value[jsonConfigIndex.value] = rule
+}
 
 /// 打开某条规则的探测历史 slideover。
 function openHistory(rule: SitePathRuleDto) {
@@ -47,9 +60,12 @@ const newRule = (): SitePathRuleDto => ({
   expectedHttpStatus: 200,
   checkType: 'HTTP_STATUS',
   expectedText: null,
+  assertionConfig: null,
   lastCheckedAt: null,
   lastHttpStatus: null,
   lastTextMatched: null,
+  lastJsonMatched: null,
+  lastJsonDetail: null,
   lastErrorMessage: null,
   alertingSince: null,
 })
@@ -97,9 +113,12 @@ async function save() {
         expectedHttpStatus: r.expectedHttpStatus,
         checkType: r.checkType,
         expectedText: r.expectedText,
+        assertionConfig: r.assertionConfig,
         lastCheckedAt: null,
         lastHttpStatus: null,
         lastTextMatched: null,
+        lastJsonMatched: null,
+        lastJsonDetail: null,
         lastErrorMessage: null,
         alertingSince: null,
       })),
@@ -171,12 +190,20 @@ const columns: Array<{ accessorKey: keyof SitePathRuleDto | 'actions' | 'history
       <template #checkType-cell="{ row }">
         <USelect
           v-model="row.original.checkType"
-          :items="[{ value: 'HTTP_STATUS', label: '状态码' }, { value: 'KEYWORD', label: '关键字' }]"
+          :items="[{ value: 'HTTP_STATUS', label: '状态码' }, { value: 'KEYWORD', label: '关键字' }, { value: 'JSON_ASSERT', label: 'JSON 条件' }]"
         />
       </template>
       <template #expectedText-cell="{ row }">
+        <UButton
+          v-if="row.original.checkType === 'JSON_ASSERT'"
+          icon="i-lucide-braces"
+          label="配置条件"
+          color="neutral"
+          variant="soft"
+          @click="openJsonConfig(row.original)"
+        />
         <UInput
-          v-if="row.original.checkType === 'KEYWORD'"
+          v-else-if="row.original.checkType === 'KEYWORD'"
           v-model="row.original.expectedText"
           name="expectedText"
           placeholder="响应体包含此文本即正常"
@@ -189,7 +216,10 @@ const columns: Array<{ accessorKey: keyof SitePathRuleDto | 'actions' | 'history
         />
       </template>
       <template #lastTextMatched-cell="{ row }">
-        <span v-if="row.original.checkType !== 'KEYWORD'">{{ '—' }}</span>
+        <UBadge v-if="row.original.checkType === 'JSON_ASSERT' && row.original.lastJsonMatched === true" color="success" variant="subtle">条件满足</UBadge>
+        <UBadge v-else-if="row.original.checkType === 'JSON_ASSERT' && row.original.lastJsonMatched === false" color="error" variant="subtle">条件不满足</UBadge>
+        <span v-else-if="row.original.checkType === 'JSON_ASSERT'" class="text-(--ui-text-muted)">—</span>
+        <span v-else-if="row.original.checkType !== 'KEYWORD'">{{ '—' }}</span>
         <UBadge v-else-if="row.original.lastTextMatched === true" color="success" variant="subtle">命中</UBadge>
         <UBadge v-else-if="row.original.lastTextMatched === false" color="error" variant="subtle">未命中</UBadge>
         <span v-else class="text-(--ui-text-muted)">{{ '—' }}</span>
@@ -256,12 +286,20 @@ const columns: Array<{ accessorKey: keyof SitePathRuleDto | 'actions' | 'history
       <template #checkType-cell="{ row }">
         <USelect
           v-model="row.original.checkType"
-          :items="[{ value: 'HTTP_STATUS', label: '状态码' }, { value: 'KEYWORD', label: '关键字' }]"
+          :items="[{ value: 'HTTP_STATUS', label: '状态码' }, { value: 'KEYWORD', label: '关键字' }, { value: 'JSON_ASSERT', label: 'JSON 条件' }]"
         />
       </template>
       <template #expectedText-cell="{ row }">
+        <UButton
+          v-if="row.original.checkType === 'JSON_ASSERT'"
+          icon="i-lucide-braces"
+          label="配置条件"
+          color="neutral"
+          variant="soft"
+          @click="openJsonConfig(row.original)"
+        />
         <UInput
-          v-if="row.original.checkType === 'KEYWORD'"
+          v-else-if="row.original.checkType === 'KEYWORD'"
           v-model="row.original.expectedText"
           name="expectedText"
           placeholder="响应体包含此文本即正常"
@@ -274,7 +312,10 @@ const columns: Array<{ accessorKey: keyof SitePathRuleDto | 'actions' | 'history
         />
       </template>
       <template #lastTextMatched-cell="{ row }">
-        <span v-if="row.original.checkType !== 'KEYWORD'">{{ '—' }}</span>
+        <UBadge v-if="row.original.checkType === 'JSON_ASSERT' && row.original.lastJsonMatched === true" color="success" variant="subtle">条件满足</UBadge>
+        <UBadge v-else-if="row.original.checkType === 'JSON_ASSERT' && row.original.lastJsonMatched === false" color="error" variant="subtle">条件不满足</UBadge>
+        <span v-else-if="row.original.checkType === 'JSON_ASSERT'" class="text-(--ui-text-muted)">—</span>
+        <span v-else-if="row.original.checkType !== 'KEYWORD'">{{ '—' }}</span>
         <UBadge v-else-if="row.original.lastTextMatched === true" color="success" variant="subtle">命中</UBadge>
         <UBadge v-else-if="row.original.lastTextMatched === false" color="error" variant="subtle">未命中</UBadge>
         <span v-else class="text-(--ui-text-muted)">{{ '—' }}</span>
@@ -327,6 +368,13 @@ const columns: Array<{ accessorKey: keyof SitePathRuleDto | 'actions' | 'history
     注意：bare 模式下本组件在外层 SitePathRuleSlideover 内部，再打开一个 slideover 会形成嵌套。
     Nuxt UI 的 USlideover 支持嵌套（reka-ui 的 DialogStack），所以行为正确。
   -->
+  <JsonAssertionSlideover
+    v-model:open="jsonConfigOpen"
+    :site-id="siteId"
+    :rule="jsonConfigIndex == null ? null : rules[jsonConfigIndex] ?? null"
+    @apply="applyJsonConfig"
+  />
+
   <SitePathCheckHistorySlideover
     v-if="historyRule"
     v-model:open="historyOpen"

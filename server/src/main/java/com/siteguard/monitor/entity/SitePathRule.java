@@ -46,9 +46,21 @@ public class SitePathRule extends BaseEntity {
     @Column(name = "expected_text", length = 255)
     private String expectedText;
 
+    /// JSON_ASSERT 的 versioned 条件配置；API 层使用结构化 DTO，持久化层仅保存 JSON 文本。
+    @Column(name = "assertion_config", columnDefinition = "TEXT")
+    private String assertionConfig;
+
     /// 最近一次是否命中关键字；null 表示未探测/探测失败。
     @Column(name = "last_text_matched")
     private Boolean lastTextMatched;
+
+    /// 最近一次 JSON 条件是否满足；请求失败尚未评估时为 null。
+    @Column(name = "last_json_matched")
+    private Boolean lastJsonMatched;
+
+    /// JSON 解析或条件评估摘要；不保存完整响应体。
+    @Column(name = "last_json_detail", length = 2048)
+    private String lastJsonDetail;
 
     /// 期望 HTTP 状态码
     @Column(name = "expected_http_status", nullable = false)
@@ -73,18 +85,23 @@ public class SitePathRule extends BaseEntity {
 
     /// 探测失败判定（probe 层与 detector 层共用）：
     /// - KEYWORD：last_text_matched 为 null（探测失败）或 false（未命中）→ 失败
+    /// - JSON_ASSERT：HTTP 状态码必须匹配，且 last_json_matched 必须为 true
     /// - HTTP_STATUS：last_http_status 为 null 或 != expected_http_status → 失败
     ///
     /// 注意：Integer 是引用类型，== 比较的是对象身份而非数值；超过 127 的状态码（如 500）
     /// 每次自动装箱会得到不同实例，必须用 equals 避免误判。
     public static boolean isFailing(SitePathRule rule) {
-        if (rule.getCheckType() == PathCheckType.KEYWORD) {
+        PathCheckType checkType = rule.getCheckType() == null
+                ? PathCheckType.HTTP_STATUS
+                : rule.getCheckType();
+        if (checkType == PathCheckType.KEYWORD) {
             return rule.getLastTextMatched() == null || !rule.getLastTextMatched();
         }
         Integer got = rule.getLastHttpStatus();
-        if (got == null) {
+        if (got == null || !got.equals(rule.getExpectedHttpStatus())) {
             return true;
         }
-        return !got.equals(rule.getExpectedHttpStatus());
+        return checkType == PathCheckType.JSON_ASSERT
+                && (rule.getLastJsonMatched() == null || !rule.getLastJsonMatched());
     }
 }

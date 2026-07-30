@@ -60,6 +60,14 @@ public class SitePathCheckHistory {
     @Column(name = "text_matched")
     private Boolean textMatched;
 
+    /// 仅 JSON_ASSERT 模式有效；请求失败尚未评估时为 null。
+    @Column(name = "json_matched")
+    private Boolean jsonMatched;
+
+    /// JSON 解析或条件评估摘要；不保存完整响应体。
+    @Column(name = "json_detail", length = 2048)
+    private String jsonDetail;
+
     @Column(name = "error_message", length = 512)
     private String errorMessage;
 }

@@ -12,6 +12,7 @@ definePageMeta({
 })
 
 const auth = useAuth()
+const { data: branding } = useBranding()
 const router = useRouter()
 const loading = ref(false)
 const errorMessage = ref('')
@@ -89,11 +90,21 @@ const handleLogin = async () => {
   <div class="w-full max-w-[28rem]">
     <!-- 品牌区域 -->
     <div class="flex flex-col items-center mb-8">
-      <div class="flex items-center gap-3 mb-2">
-        <div class="flex items-center justify-center w-12 h-12 rounded-xl bg-success/10 ring-1 ring-success/20">
-          <UIcon name="i-lucide-radar" class="w-7 h-7 text-success"/>
+      <div class="flex min-w-0 max-w-full items-center gap-3 mb-2">
+        <div class="flex flex-shrink-0 items-center justify-center w-12 h-12 rounded-xl bg-success/10 ring-1 ring-success/20">
+          <BrandIcon
+            :src="branding.iconUrl"
+            :custom="branding.customIcon"
+            :alt="`${branding.name} 图标`"
+            class="w-7 h-7 text-success"
+          />
         </div>
-        <span class="text-3xl font-semibold text-highlighted tracking-tight">Site Guard</span>
+        <span
+          class="min-w-0 truncate text-3xl font-semibold text-highlighted tracking-tight"
+          :title="branding.name"
+        >
+          {{ branding.name }}
+        </span>
       </div>
       <p class="mt-3 text-lg font-semibold text-highlighted tracking-wide">
         不让故障,悄悄发生

@@ -1,5 +1,7 @@
 package com.siteguard.monitor.probe;
 
+import com.siteguard.monitor.entity.CheckStatus;
+import com.siteguard.monitor.entity.SitePathCheckHistory;
 import com.siteguard.monitor.entity.SitePathRule;
 import com.siteguard.monitor.repository.SitePathCheckHistoryRepository;
 import com.siteguard.monitor.repository.SitePathRuleRepository;
@@ -774,6 +776,94 @@ class PathCheckProbeTest {
         assertNull(r.getLastHttpStatus());
         assertNull(r.getLastTextMatched());
         assertNotNull(r.getLastErrorMessage());
+    }
+
+    // ---------- JSON 条件模式测试 ----------
+
+    private SitePathRule jsonRule(String path, int expectedStatus, String config) {
+        var rule = new SitePathRule();
+        rule.setId(System.nanoTime());
+        rule.setSiteId(1L);
+        rule.setPath(path);
+        rule.setCheckType(PathCheckType.JSON_ASSERT);
+        rule.setExpectedHttpStatus(expectedStatus);
+        rule.setAssertionConfig(config);
+        return rule;
+    }
+
+    @Test
+    void jsonMode_systemInfoConditionsMatched_resetsCounterAndWritesHistory() {
+        server.createContext("/systeminfo", ex -> {
+            byte[] body = "{\"checkCrontab\":true,\"diskAvailableSpaceRate\":18.6}".getBytes();
+            ex.sendResponseHeaders(200, body.length);
+            ex.getResponseBody().write(body);
+            ex.close();
+        });
+        var rule = jsonRule("/systeminfo", 200, """
+                {"version":1,"combinator":"ALL","conditions":[
+                  {"path":"checkCrontab","operator":"IS_TRUE","expectedValue":null},
+                  {"path":"diskAvailableSpaceRate","operator":"NUMBER_GT","expectedValue":"10"}
+                ]}
+                """);
+        rule.setConsecutiveFailures(2);
+        when(ruleRepo.findBySiteIdOrderByIdAsc(1L)).thenReturn(List.of(rule));
+
+        probe.probe(site());
+
+        assertEquals(true, rule.getLastJsonMatched());
+        assertEquals(0, rule.getConsecutiveFailures());
+        assertTrue(rule.getLastJsonDetail().contains("18.6"));
+        ArgumentCaptor<SitePathCheckHistory> history = ArgumentCaptor.forClass(SitePathCheckHistory.class);
+        verify(historyRepo).save(history.capture());
+        assertEquals(CheckStatus.UP, history.getValue().getStatus());
+        assertEquals(true, history.getValue().getJsonMatched());
+    }
+
+    @Test
+    void jsonMode_statusMismatchFailsEvenWhenConditionsMatch() {
+        server.createContext("/systeminfo", ex -> {
+            byte[] body = "{\"checkCrontab\":true}".getBytes();
+            ex.sendResponseHeaders(500, body.length);
+            ex.getResponseBody().write(body);
+            ex.close();
+        });
+        var rule = jsonRule("/systeminfo", 200, """
+                {"version":1,"combinator":"ALL","conditions":[
+                  {"path":"checkCrontab","operator":"IS_TRUE","expectedValue":null}
+                ]}
+                """);
+        when(ruleRepo.findBySiteIdOrderByIdAsc(1L)).thenReturn(List.of(rule));
+
+        probe.probe(site());
+
+        assertEquals(true, rule.getLastJsonMatched());
+        assertEquals(500, rule.getLastHttpStatus());
+        assertEquals(1, rule.getConsecutiveFailures());
+    }
+
+    @Test
+    void jsonMode_invalidJsonIsBusinessFailureButHistoryRequestCompleted() {
+        server.createContext("/systeminfo", ex -> {
+            byte[] body = "not-json".getBytes();
+            ex.sendResponseHeaders(200, body.length);
+            ex.getResponseBody().write(body);
+            ex.close();
+        });
+        var rule = jsonRule("/systeminfo", 200, """
+                {"version":1,"combinator":"ALL","conditions":[
+                  {"path":"checkCrontab","operator":"IS_TRUE","expectedValue":null}
+                ]}
+                """);
+        when(ruleRepo.findBySiteIdOrderByIdAsc(1L)).thenReturn(List.of(rule));
+
+        probe.probe(site());
+
+        assertEquals(false, rule.getLastJsonMatched());
+        assertNull(rule.getLastErrorMessage());
+        assertTrue(rule.getLastJsonDetail().contains("JSON 解析失败"));
+        ArgumentCaptor<SitePathCheckHistory> history = ArgumentCaptor.forClass(SitePathCheckHistory.class);
+        verify(historyRepo).save(history.capture());
+        assertEquals(CheckStatus.UP, history.getValue().getStatus());
     }
 
     // ---------- 关键字模式 + HTTPS cert_forgive 组合测试 ----------

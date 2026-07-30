@@ -18,6 +18,15 @@ export const uiStubs: Record<string, Component> = {
   UCard: {
     template: '<div><slot name="header" /><slot /></div>',
   } as Component,
+  UFormField: {
+    props: ['label', 'help'],
+    template: '<label><span>{{ label }}</span><slot /><small>{{ help }}</small></label>',
+  } as Component,
+  UInput: {
+    props: ['modelValue'],
+    emits: ['update:modelValue'],
+    template: '<input :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)">',
+  } as Component,
   UTable: {
     props: ['data', 'columns'],
     template:
@@ -37,6 +46,13 @@ export const uiStubs: Record<string, Component> = {
   UBadge: {
     template: '<span><slot /></span>',
   } as Component,
+  UTooltip: {
+    props: ['text'],
+    template: '<span><slot /></span>',
+  } as Component,
+  USlideover: {
+    template: '<div><slot name="content" /></div>',
+  } as Component,
   USkeleton: {
     template: '<div data-testid="skeleton"><slot /></div>',
   } as Component,
@@ -50,8 +66,20 @@ export const uiStubs: Record<string, Component> = {
     template: '<button type="button"><slot /></button>',
   } as Component,
   UButton: {
-    props: ['loading', 'icon'],
-    template: '<button type="button" :disabled="loading"><slot /></button>',
+    props: ['loading', 'icon', 'disabled'],
+    emits: ['click'],
+    template: '<button type="button" :disabled="loading || disabled" @click="$emit(\'click\')"><slot />{{ icon ? buttonLabel(icon) : \'\' }}</button>',
+    methods: {
+      buttonLabel(icon: string) {
+        if (icon === 'i-lucide-copy') return '复制'
+        if (icon === 'i-lucide-maximize-2') return '全屏'
+        if (icon === 'i-lucide-minimize-2') return '退出全屏'
+        return ''
+      },
+    },
+  } as Component,
+  BrandIcon: {
+    template: '<i data-testid="brand-icon"></i>',
   } as Component,
   /// 站点大屏内的业务组件：测试只关心"渲染没报错 + 卡片/告警出现"，
   /// 不展开内部断言。这里透传默认 slot，让 wrapper.text() 仍能拿到子内容。

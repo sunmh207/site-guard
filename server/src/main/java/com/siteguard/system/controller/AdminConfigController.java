@@ -2,6 +2,7 @@ package com.siteguard.system.controller;
 
 import tools.jackson.databind.ObjectMapper;
 import com.siteguard.common.dto.StatusResult;
+import com.siteguard.common.exception.Errors;
 import com.siteguard.notify.dto.TestWebhookParams;
 import com.siteguard.notify.dto.TestWebhookResult;
 import com.siteguard.notify.service.NotifyService;
@@ -42,7 +43,7 @@ public class AdminConfigController {
     @GetMapping("/get")
     public StatusResult<ConfigResponse> get(
             @RequestParam @Parameter(description = "配置键", required = true) String key) {
-        var configKey = ConfigKey.fromString(key);
+        var configKey = genericConfigKey(key);
         var node = configService.getNode(configKey);
         var entity = new ConfigResponse();
         entity.setKey(key);
@@ -54,7 +55,7 @@ public class AdminConfigController {
     @Operation(summary = "保存配置")
     @PostMapping("/set")
     public StatusResult<ConfigResponse> set(@Valid @RequestBody ConfigUpdateParams params) {
-        var configKey = ConfigKey.fromString(params.getKey());
+        var configKey = genericConfigKey(params.getKey());
         // 直接保存 JsonNode，由 ConfigService.set 按 key 类型做合并/校验
         configService.set(configKey, params.getValue());
         var resp = new ConfigResponse();
@@ -67,7 +68,7 @@ public class AdminConfigController {
     @Operation(summary = "删除配置")
     @PostMapping("/delete")
     public StatusResult<Void> delete(@Valid @RequestBody ConfigDeleteParams params) {
-        var configKey = ConfigKey.fromString(params.getKey());
+        var configKey = genericConfigKey(params.getKey());
         configService.delete(configKey);
         return StatusResult.ok();
     }
@@ -81,5 +82,14 @@ public class AdminConfigController {
     public StatusResult<TestWebhookResult> testWebhook(@Valid @RequestBody TestWebhookParams params) {
         return StatusResult.success(notifyService.testWebhook(
             params.getPlatform(), params.getWebhookUrl(), params.getSecret()));
+    }
+
+    /// branding 涉及文件与 KV 的一致性，禁止绕过 BrandingService 直接操作。
+    private ConfigKey genericConfigKey(String key) {
+        var configKey = ConfigKey.fromString(key);
+        if (configKey == ConfigKey.BRANDING) {
+            throw Errors.INVALID_ARGUMENT.toException("品牌配置请使用专用 branding 接口");
+        }
+        return configKey;
     }
 }

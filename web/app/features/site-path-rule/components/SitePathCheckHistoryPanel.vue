@@ -92,6 +92,8 @@ const columns: Array<{ accessorKey: keyof SitePathCheckHistoryDto; header: strin
   { accessorKey: 'status', header: '状态' },
   { accessorKey: 'httpStatus', header: 'HTTP 状态码' },
   { accessorKey: 'textMatched', header: '关键字命中' },
+  { accessorKey: 'jsonMatched', header: 'JSON 条件' },
+  { accessorKey: 'jsonDetail', header: 'JSON 摘要' },
   { accessorKey: 'errorMessage', header: '错误信息' },
 ]
 </script>
@@ -144,6 +146,17 @@ const columns: Array<{ accessorKey: keyof SitePathCheckHistoryDto; header: strin
         >
           未命中
         </UBadge>
+        <span v-else class="text-(--ui-text-muted)">—</span>
+      </template>
+      <template #jsonMatched-cell="{ row }">
+        <UBadge v-if="row.original.jsonMatched === true" color="success" variant="subtle">满足</UBadge>
+        <UBadge v-else-if="row.original.jsonMatched === false" color="error" variant="subtle">不满足</UBadge>
+        <span v-else class="text-(--ui-text-muted)">—</span>
+      </template>
+      <template #jsonDetail-cell="{ row }">
+        <UTooltip v-if="row.original.jsonDetail" :text="row.original.jsonDetail">
+          <span>{{ row.original.jsonDetail.length > 60 ? `${row.original.jsonDetail.slice(0, 60)}…` : row.original.jsonDetail }}</span>
+        </UTooltip>
         <span v-else class="text-(--ui-text-muted)">—</span>
       </template>
       <template #errorMessage-cell="{ row }">

@@ -3,6 +3,8 @@ package com.siteguard.monitor.service;
 import com.siteguard.monitor.dto.SitePathCheckHistoryDTO;
 import com.siteguard.monitor.dto.SitePathRuleDTO;
 import com.siteguard.monitor.dto.SitePathRuleListRequest;
+import com.siteguard.monitor.dto.SitePathRuleTestRequest;
+import com.siteguard.monitor.dto.SitePathRuleTestResultDTO;
 
 import java.util.List;
 
@@ -22,6 +24,9 @@ public interface SitePathRuleService {
 
     /// 按 id 删除单条规则
     void delete(Long ruleId);
+
+    /// 不落库地测试一条未保存规则。
+    SitePathRuleTestResultDTO test(Long siteId, SitePathRuleTestRequest request);
 
     /// 某条路径规则的最近 limit 条探测历史（按 checked_at 倒序）。
     /// limit 会在实现层做硬上限钳制，避免外部绕过。

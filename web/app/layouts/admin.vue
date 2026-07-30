@@ -8,6 +8,7 @@ import { ROUTES } from '~/shared/constants/routes'
 
 const route = useRoute()
 const open = ref(true) // 默认展开
+const { data: branding } = useBranding()
 
 // 菜单项配置：每个后台模块对应一项
 const items: NavigationMenuItem[] = [
@@ -57,8 +58,10 @@ watch(() => route.path, () => {
       <template #header="{ collapsed }">
         <div class="flex justify-between items-center px-0.5 py-1.5 w-full">
           <div class="flex items-center gap-2 min-w-0">
-            <UIcon 
-              name="i-lucide-radar"
+            <BrandIcon
+              :src="branding.iconUrl"
+              :custom="branding.customIcon"
+              :alt="`${branding.name} 图标`"
               class="w-6 h-6 text-success flex-shrink-0"
             />
             <Transition
@@ -67,11 +70,12 @@ watch(() => route.path, () => {
               enter-from-class="opacity-0"
               leave-to-class="opacity-0"
             >
-              <span 
-                v-show="!collapsed" 
-                class="text-lg font-medium text-highlighted  whitespace-nowrap"
+              <span
+                v-show="!collapsed"
+                class="min-w-0 truncate text-lg font-medium text-highlighted"
+                :title="branding.name"
               >
-                Site Guard
+                {{ branding.name }}
               </span>
             </Transition>
           </div>

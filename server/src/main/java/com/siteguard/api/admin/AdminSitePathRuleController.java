@@ -5,6 +5,8 @@ import com.siteguard.common.dto.StatusResult;
 import com.siteguard.monitor.dto.SitePathCheckHistoryDTO;
 import com.siteguard.monitor.dto.SitePathRuleDTO;
 import com.siteguard.monitor.dto.SitePathRuleListRequest;
+import com.siteguard.monitor.dto.SitePathRuleTestRequest;
+import com.siteguard.monitor.dto.SitePathRuleTestResultDTO;
 import com.siteguard.monitor.service.SitePathRuleService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -49,6 +51,15 @@ public class AdminSitePathRuleController {
         var req = new SitePathRuleListRequest(siteId, body.rules());
         service.set(req);
         return StatusResult.ok();
+    }
+
+    /// 测试一条尚未保存的规则；复用正式探测但不写规则、历史、counter 或告警状态。
+    @Operation(summary = "测试一条子路由规则")
+    @PostMapping("/{siteId}/pathRule/test")
+    public StatusResult<SitePathRuleTestResultDTO> test(
+            @PathVariable Long siteId,
+            @Valid @RequestBody SitePathRuleTestRequest body) {
+        return StatusResult.success(service.test(siteId, body));
     }
 
     /// 按 id 删除单条规则

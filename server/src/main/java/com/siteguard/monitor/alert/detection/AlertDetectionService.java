@@ -6,13 +6,17 @@ import com.siteguard.monitor.alert.AlertDefinition.EvalResult;
 import com.siteguard.monitor.alert.AlertKind;
 import com.siteguard.monitor.alert.AlertStatus;
 import com.siteguard.monitor.alert.notification.NotificationEvent;
-import com.siteguard.monitor.probe.PathCheckType;
+import com.siteguard.monitor.jsoncondition.JsonConditionEvaluator;
+import com.siteguard.monitor.jsoncondition.JsonAssertionConfigCodec;
+import com.siteguard.monitor.probe.PathCheckMessageFormatter;
 import com.siteguard.monitor.repository.SitePathRuleRepository;
 import com.siteguard.site.entity.Site;
 import com.siteguard.site.entity.SiteMaintenance;
 import com.siteguard.site.repository.SiteRepository;
+import tools.jackson.databind.json.JsonMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -44,19 +48,38 @@ public class AlertDetectionService {
     private final List<AlertDefinition> definitions;
     private final ApplicationEventPublisher publisher;
     private final Clock clock;
+    private final JsonAssertionConfigCodec assertionCodec;
 
+    /// 兼容直接 new 的旧测试；生产由 Spring 使用包含 codec 的完整构造器。
     public AlertDetectionService(SiteRepository siteRepo,
                                  SiteCheckStateRepository stateRepo,
                                  SitePathRuleRepository pathRuleRepo,
                                  List<AlertDefinition> definitions,
                                  ApplicationEventPublisher publisher,
                                  Clock clock) {
+        this(siteRepo, stateRepo, pathRuleRepo, definitions, publisher, clock, defaultAssertionCodec());
+    }
+
+    private static JsonAssertionConfigCodec defaultAssertionCodec() {
+        var mapper = JsonMapper.builder().build();
+        return new JsonAssertionConfigCodec(mapper, new JsonConditionEvaluator(mapper));
+    }
+
+    @Autowired
+    public AlertDetectionService(SiteRepository siteRepo,
+                                 SiteCheckStateRepository stateRepo,
+                                 SitePathRuleRepository pathRuleRepo,
+                                 List<AlertDefinition> definitions,
+                                 ApplicationEventPublisher publisher,
+                                 Clock clock,
+                                 JsonAssertionConfigCodec assertionCodec) {
         this.siteRepo = siteRepo;
         this.stateRepo = stateRepo;
         this.pathRuleRepo = pathRuleRepo;
         this.definitions = definitions;
         this.publisher = publisher;
         this.clock = clock;
+        this.assertionCodec = assertionCodec;
     }
 
     /// Quartz job 入口：跑一轮全量检测。
@@ -150,12 +173,7 @@ public class AlertDetectionService {
                         /// - KEYWORD：带 expected_text，如 "（期望包含「xxx」）"
                         /// rule 在异常期间被删则降级为不带期望信息，避免强造状态码/关键字误导运维
                         msg = pathRuleRepo.findBySiteIdAndPath(site.getId(), bucket)
-                                .map(rule -> {
-                                    if (rule.getCheckType() == PathCheckType.KEYWORD) {
-                                        return "子路由 `" + bucket + "` 已恢复（期望包含「" + rule.getExpectedText() + "」）";
-                                    }
-                                    return "子路由 `" + bucket + "` 已恢复（期望 " + rule.getExpectedHttpStatus() + "）";
-                                })
+                                .map(rule -> PathCheckMessageFormatter.recovery(bucket, rule, assertionCodec))
                                 .orElse("子路由 `" + bucket + "` 已恢复");
                     } else if (!newHasAnyAbnormal && !newBuckets.isEmpty()) {
                         /// 守卫 !newBuckets.isEmpty()：避免检测器"暂无可发事件"被误读为"已恢复"。

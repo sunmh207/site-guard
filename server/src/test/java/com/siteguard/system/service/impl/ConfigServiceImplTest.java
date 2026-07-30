@@ -3,6 +3,7 @@ package com.siteguard.system.service.impl;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
+import com.siteguard.branding.config.BrandingConfig;
 import com.siteguard.common.exception.AppException;
 import com.siteguard.notify.enums.RobotPlatform;
 import com.siteguard.system.config.CertAlertConfig;
@@ -204,5 +205,19 @@ class ConfigServiceImplTest {
         verify(repo).save(captor.capture());
         assertThat(captor.getValue().getConfigKey()).isEqualTo("open_dashboard");
         assertThat(captor.getValue().getConfigValue()).isEqualTo("true");
+    }
+
+    @Test
+    void brandingTypedKey_roundTripsWithoutChangingServiceConstructor() {
+        var entity = new SystemConfig();
+        entity.setConfigKey("branding");
+        entity.setConfigValue("{\"siteName\":\"My Site\",\"iconVersion\":null}");
+        when(repo.findByConfigKey("branding")).thenReturn(Optional.of(entity));
+
+        BrandingConfig result = service.get(ConfigKey.BRANDING);
+
+        assertThat(result.getSiteName()).isEqualTo("My Site");
+        assertThat(result.getIconVersion()).isNull();
+        assertThat(ConfigKey.BRANDING.getValueType()).isEqualTo(BrandingConfig.class);
     }
 }

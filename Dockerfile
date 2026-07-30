@@ -69,8 +69,8 @@ COPY --from=backend-builder /backend/build/libs/*.jar /app/app.jar
 # 复制前端静态资源
 COPY --from=frontend-builder /frontend/.output/public /usr/share/nginx/html
 
-# 创建必要目录
-RUN mkdir -p /app/data /app/logs \
+# 创建必要目录；branding 独立子目录由宿主机 ./data 卷持久化
+RUN mkdir -p /app/data/branding /app/logs \
     && rm -f /etc/nginx/sites-enabled/default \
     && rm -f /etc/nginx/conf.d/default.conf
 

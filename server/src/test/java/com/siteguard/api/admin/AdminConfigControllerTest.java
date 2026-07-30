@@ -43,6 +43,26 @@ class AdminConfigControllerTest {
     }
 
     @Test
+    void genericEndpoints_rejectBrandingWithoutChangingConstructorArity() throws Exception {
+        assertThatThrownBy(() -> controller.get("branding"))
+                .isInstanceOf(AppException.class)
+                .hasMessageContaining("branding");
+
+        var update = new com.siteguard.system.dto.ConfigUpdateParams();
+        update.setKey("branding");
+        update.setValue(objectMapper.readTree("{\"siteName\":\"Bypass\"}"));
+        assertThatThrownBy(() -> controller.set(update)).isInstanceOf(AppException.class);
+
+        var delete = new com.siteguard.system.dto.ConfigDeleteParams();
+        delete.setKey("branding");
+        assertThatThrownBy(() -> controller.delete(delete)).isInstanceOf(AppException.class);
+
+        verify(configService, never()).getNode(ConfigKey.BRANDING);
+        verify(configService, never()).set(eq(ConfigKey.BRANDING), any());
+        verify(configService, never()).delete(ConfigKey.BRANDING);
+    }
+
+    @Test
     void set_callsServiceSet() throws Exception {
         var params = new com.siteguard.system.dto.ConfigUpdateParams();
         params.setKey("notification");

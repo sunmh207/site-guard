@@ -13,6 +13,7 @@ definePageMeta({
 })
 
 const { data, refresh, status } = await adminSiteStatsApi.getDashboard()
+const { data: branding } = useBranding()
 
 /// 最后一次成功刷新的时间戳（毫秒）。手动点击 / 定时器 / 首次加载完成后都会更新。
 /// 渲染为绝对时间 "YYYY-MM-DD HH:mm:ss"——页面冻结时仍能看到真实刷新时刻，
@@ -45,9 +46,22 @@ useIntervalFn(() => {
 <template>
   <UDashboardPanel id="dashboard">
     <template #header>
-      <UDashboardNavbar title="监控仪表盘">
+      <UDashboardNavbar>
         <template #leading>
           <UDashboardSidebarCollapse />
+        </template>
+        <template #title>
+          <span class="flex min-w-0 items-center gap-2">
+            <BrandIcon
+              :src="branding.iconUrl"
+              :custom="branding.customIcon"
+              :alt="`${branding.name} 图标`"
+              class="h-5 w-5 flex-shrink-0 text-success"
+            />
+            <span class="truncate" :title="`${branding.name} 监控仪表盘`">
+              {{ branding.name }} 监控仪表盘
+            </span>
+          </span>
         </template>
         <template #right>
           <span

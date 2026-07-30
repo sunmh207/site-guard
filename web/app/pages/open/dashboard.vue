@@ -16,6 +16,7 @@ import { ROUTES } from '~/shared/constants/routes'
 definePageMeta({ layout: 'open' })
 
 const { data, refresh, status, error } = await openSiteStatsApi.getDashboard()
+const { data: branding } = useBranding()
 
 /// 404 / 关闭态判定：useFetch 失败后 error.value 会带 code / status。
 /// 后端 AdminConfigController / OpenDashboardController 抛 Errors.NOT_FOUND，
@@ -87,10 +88,18 @@ async function onToggleFullscreen() {
     <template #header>
       <UDashboardNavbar>
         <template #title>
-          <span class="flex items-center gap-3">
-            <span>Site Guard 监控大屏</span>
-            <span class="h-3 w-px bg-(--ui-text-muted) opacity-50"></span>
-            <span class="text-xs font-normal text-(--ui-text-muted)">不让故障，悄悄发生</span>
+          <span class="flex min-w-0 items-center gap-3">
+            <BrandIcon
+              :src="branding.iconUrl"
+              :custom="branding.customIcon"
+              :alt="`${branding.name} 图标`"
+              class="h-6 w-6 flex-shrink-0 text-success"
+            />
+            <span class="min-w-0 truncate" :title="`${branding.name} 监控大屏`">
+              {{ branding.name }} 监控大屏
+            </span>
+            <span class="h-3 w-px flex-shrink-0 bg-(--ui-text-muted) opacity-50"></span>
+            <span class="flex-shrink-0 text-xs font-normal text-(--ui-text-muted)">不让故障，悄悄发生</span>
           </span>
         </template>
         <template #right>

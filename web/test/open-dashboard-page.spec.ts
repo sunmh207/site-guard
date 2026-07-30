@@ -124,6 +124,10 @@ vi.mock('~/features/site/api/open-stats.api', async () => {
 
 /// useColorMode 是 Nuxt auto-import；测试环境下用最小 stub
 vi.stubGlobal('useColorMode', () => ({ preference: { value: 'dark' } }))
+/// 品牌状态同样由 Nuxt auto-import composable 提供；页面测试固定使用默认品牌。
+vi.stubGlobal('useBranding', () => ({
+  data: ref({ name: 'Site Guard', iconUrl: '/favicon.ico', customIcon: false }),
+}))
 
 /// definePageMeta 是 Nuxt 编译时宏，运行时未定义；stub 为 no-op
 vi.stubGlobal('definePageMeta', () => {})

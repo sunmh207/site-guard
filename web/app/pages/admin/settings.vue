@@ -11,6 +11,7 @@
 /// 未来如出现"暗色/亮色默认"等同类开关，同收口到此 Tab。
 import { computed } from 'vue'
 import NotificationSettingCard from '~/features/notification-setting/components/NotificationSettingCard.vue'
+import BrandingSettingCard from '~/features/branding/components/BrandingSettingCard.vue'
 import OpenDashboardSettingCard from '~/features/open-dashboard-setting/components/OpenDashboardSettingCard.vue'
 import AlertConfirmSettingCard from '~/features/alert-confirm-setting/components/AlertConfirmSettingCard.vue'
 import ScheduledReportSettingCard from '~/features/scheduled-report-setting/components/ScheduledReportSettingCard.vue'
@@ -65,7 +66,10 @@ const tabItems = [
           </div>
         </template>
         <template #display>
-          <OpenDashboardSettingCard />
+          <BrandingSettingCard />
+          <div class="mt-4">
+            <OpenDashboardSettingCard />
+          </div>
         </template>
         <template #about>
           <AboutCard />

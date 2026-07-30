@@ -1,6 +1,5 @@
 package com.siteguard.monitor.dto;
 
-import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 
 import java.util.List;
@@ -15,5 +14,5 @@ import java.util.List;
 /// 简而言之：全删全插（atomic replace），id 始终由数据库自增分配。
 public record SitePathRuleListRequest(
         @NotNull Long siteId,
-        @NotEmpty List<SitePathRuleDTO> rules
+        @NotNull List<SitePathRuleDTO> rules
 ) {}

@@ -46,7 +46,10 @@ vi.mock('~/features/open-dashboard-setting/api/open-dashboard-setting.api', () =
 import OpenDashboardSettingCard from '~/features/open-dashboard-setting/components/OpenDashboardSettingCard.vue'
 
 const stubs = {
-  UButton: { template: '<button><slot /></button>' },
+  UButton: {
+    props: ['icon'],
+    template: '<button><slot />{{ icon === \'i-lucide-copy\' ? \'复制\' : \'\' }}</button>',
+  },
   UInput: { template: '<input />' },
   USwitch: { props: ['modelValue'], template: '<button :data-on="modelValue" @click="$emit(\'update:model-value\', !modelValue)"><slot /></button>' },
   UCard: { template: '<div><slot name="header" /><slot /></div>' },

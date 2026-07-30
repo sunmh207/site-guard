@@ -116,6 +116,32 @@ describe('SitePathCheckHistoryPanel', () => {
     expect(wrapper.text()).toContain('未命中')
   })
 
+  it('renders JSON condition result and detail', async () => {
+    $adminApiMock.mockResolvedValueOnce([
+      {
+        id: 1,
+        siteId: 7,
+        ruleId: 42,
+        path: '/systeminfo',
+        checkedAt: 1_700_000_000_000,
+        status: 'UP',
+        httpStatus: 200,
+        textMatched: null,
+        jsonMatched: false,
+        jsonDetail: 'diskAvailableSpaceRate：实际值 8.2，条件 NUMBER_GT 10',
+        errorMessage: null,
+      },
+    ])
+    const wrapper = mount(SitePathCheckHistoryPanel, {
+      props: { ruleId: 42 },
+      global: { stubs },
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('不满足')
+    expect(wrapper.text()).toContain('diskAvailableSpaceRate')
+  })
+
   it('exposes refresh that re-fetches data', async () => {
     $adminApiMock.mockResolvedValueOnce([])
     const wrapper = mount(SitePathCheckHistoryPanel, {

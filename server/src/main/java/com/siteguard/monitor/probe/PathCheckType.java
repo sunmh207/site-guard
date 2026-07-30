@@ -13,5 +13,8 @@ public enum PathCheckType {
 
     /// 按响应体是否包含指定关键字判定（关键字由规则配置，包含为健康）。
     /// 用于状态码正常但业务错误页返回固定文案的场景（如网关 200 + 错误 JSON）。
-    KEYWORD;
+    KEYWORD,
+
+    /// 解析 JSON 响应体并按可视化条件列表判定；HTTP 状态码也必须等于期望值。
+    JSON_ASSERT;
 }

@@ -21,5 +21,9 @@ export interface SitePathCheckHistoryDto {
   status: CheckStatus
   httpStatus: number | null
   textMatched: boolean | null
+  /// JSON_ASSERT 模式的整体条件结果；请求失败或其他模式为 null
+  jsonMatched: boolean | null
+  /// JSON 解析/条件摘要，不包含完整响应体
+  jsonDetail: string | null
   errorMessage: string | null
 }

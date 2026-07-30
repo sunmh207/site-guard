@@ -7,9 +7,14 @@ import com.siteguard.monitor.alert.detection.SiteCheckStateRepository;
 import com.siteguard.monitor.dto.SitePathCheckHistoryDTO;
 import com.siteguard.monitor.dto.SitePathRuleDTO;
 import com.siteguard.monitor.dto.SitePathRuleListRequest;
+import com.siteguard.monitor.dto.SitePathRuleTestRequest;
+import com.siteguard.monitor.dto.SitePathRuleTestResultDTO;
 import com.siteguard.monitor.entity.SitePathCheckHistory;
 import com.siteguard.monitor.entity.SitePathRule;
+import com.siteguard.monitor.jsoncondition.JsonAssertionConfigCodec;
+import com.siteguard.monitor.jsoncondition.JsonAssertionConfigDTO;
 import com.siteguard.monitor.mapper.SitePathRuleMapper;
+import com.siteguard.monitor.probe.PathCheckProbe;
 import com.siteguard.monitor.probe.PathCheckType;
 import com.siteguard.monitor.repository.SitePathCheckHistoryRepository;
 import com.siteguard.monitor.repository.SitePathRuleRepository;
@@ -24,21 +29,12 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-/// 站点子路由规则 service。
-///
-/// 设计要点：
-/// - 整批 set 走"全删 + 全插"语义，不做 diff；前端在请求体里只带"用户期望保留"的行
-/// - 前端不能伪造 last_* 字段：set 时强制把探测状态字段置 null
-/// - 前端不能伪造 id：set 时强制把 entity.id 置 null，让 JPA 走 persist（DB 自增分配 id），
-///   避免 deleteBySiteId 之后 merge 抛 StaleObjectStateException
-/// - listBySite 联查 site_check_state（PATH_CHECK），把每条规则对应的 alertingSince 一并填充：
-///   非 null 表示当前在告警，值即 state.updatedAt（lastNotifiedAt + updatedAt 同一时刻）
+/// 站点子路由规则 service。整批保存采用“先校验和构造，再全删全插”，
+/// 防止复杂 JSON 配置非法时提前删除用户已有规则。
 @Service
 @RequiredArgsConstructor
 public class SitePathRuleServiceImpl implements SitePathRuleService {
 
-    /// 探测历史 slideover 的硬上限：listRecentHistory 不论外部传多少，最多返回 MAX_RECENT_HISTORY 条。
-    /// 与 SiteCheckServiceImpl.MAX_RECENT_HISTORY 保持一致（前端默认 30）。
     private static final int MAX_RECENT_HISTORY = 30;
 
     private final SitePathRuleRepository ruleRepo;
@@ -46,92 +42,128 @@ public class SitePathRuleServiceImpl implements SitePathRuleService {
     private final SitePathRuleMapper mapper;
     private final SiteCheckStateRepository stateRepo;
     private final SitePathCheckHistoryRepository historyRepo;
+    private final JsonAssertionConfigCodec assertionCodec;
+    private final PathCheckProbe pathCheckProbe;
 
     @Override
     @Transactional(readOnly = true)
     public List<SitePathRuleDTO> listBySite(Long siteId) {
         List<SitePathRule> rules = ruleRepo.findBySiteIdOrderByIdAsc(siteId);
-        // 一次性拉取全部 PATH_CHECK state，在内存里按 (siteId, path) 过滤，构造 path -> alertingSince 的查找表
         Map<String, Long> alertingSince = new HashMap<>();
-        for (SiteCheckState s : stateRepo.findByAlertKind(AlertKind.PATH_CHECK)) {
-            if (siteId.equals(s.getId().siteId())) {
-                alertingSince.put(s.getId().bucket(), s.getUpdatedAt());
+        for (SiteCheckState state : stateRepo.findByAlertKind(AlertKind.PATH_CHECK)) {
+            if (siteId.equals(state.getId().siteId())) {
+                alertingSince.put(state.getId().bucket(), state.getUpdatedAt());
             }
         }
         return rules.stream()
-                .map(r -> toDto(r, alertingSince.get(r.getPath())))
+                .map(rule -> toDto(rule, alertingSince.get(rule.getPath())))
                 .toList();
     }
 
-    /// 组装单条 DTO。alertingSince=null 表示该路径当前不在告警。
-    private SitePathRuleDTO toDto(SitePathRule r, Long alertingSince) {
+    private SitePathRuleDTO toDto(SitePathRule rule, Long alertingSince) {
+        PathCheckType checkType = normalizeCheckType(rule.getCheckType());
+        JsonAssertionConfigDTO assertionConfig = null;
+        String jsonDetail = rule.getLastJsonDetail();
+        if (rule.getAssertionConfig() != null) {
+            try {
+                assertionConfig = assertionCodec.decode(rule.getAssertionConfig());
+            } catch (IllegalArgumentException e) {
+                /// 单条存量脏配置不能阻断整个站点的规则列表；把问题作为只读诊断返回。
+                jsonDetail = "JSON 条件配置不可读取：" + e.getMessage();
+            }
+        }
         return new SitePathRuleDTO(
-                r.getId(), r.getSiteId(), r.getPath(), r.getExpectedHttpStatus(),
-                r.getCheckType(), r.getExpectedText(),
-                r.getLastCheckedAt(), r.getLastHttpStatus(), r.getLastTextMatched(),
-                r.getLastErrorMessage(), alertingSince);
+                rule.getId(), rule.getSiteId(), rule.getPath(), rule.getExpectedHttpStatus(),
+                checkType, rule.getExpectedText(), assertionConfig,
+                rule.getLastCheckedAt(), rule.getLastHttpStatus(), rule.getLastTextMatched(),
+                rule.getLastJsonMatched(), jsonDetail, rule.getLastErrorMessage(), alertingSince);
     }
 
     @Override
     @Transactional
     public void set(SitePathRuleListRequest request) {
-        // 站点不存在直接 404
         siteRepo.findById(request.siteId())
                 .orElseThrow(() -> Errors.NOT_FOUND.toException("站点不存在 (ID: {})", request.siteId()));
-        // 全删旧规则（无论是否为空都调用，幂等）
+
+        /// 在 DELETE 前完成全部校验和 entity 构造；虽然事务异常可回滚，先校验仍能避免 flush 时序
+        /// 或未来事务边界变化造成“非法请求清空旧规则”的隐患。
+        List<SitePathRule> entities = request.rules().stream()
+                .map(this::validateAndBuildEntity)
+                .toList();
+
         ruleRepo.deleteBySiteId(request.siteId());
-        // 跨字段校验：按 checkType 决定哪个字段必填。
-        // - KEYWORD：expectedText 必填（trim 后非空）
-        // - HTTP_STATUS：expectedHttpStatus 必填
-        // 校验放在 deleteBySiteId 之后、saveAll 之前：非法请求不污染已有数据。
-        for (SitePathRuleDTO dto : request.rules()) {
-            if (dto.checkType() == PathCheckType.KEYWORD) {
-                if (dto.expectedText() == null || dto.expectedText().trim().isEmpty()) {
-                    throw Errors.BAD_REQUEST.toException("关键字模式下 expectedText 不能为空 (path=%s)", dto.path());
-                }
-            } else {
-                if (dto.expectedHttpStatus() == null) {
-                    throw Errors.BAD_REQUEST.toException("HTTP_STATUS 模式下 expectedHttpStatus 不能为空 (path=%s)", dto.path());
-                }
+        if (!entities.isEmpty()) {
+            ruleRepo.saveAll(entities);
+        }
+    }
+
+    private SitePathRule validateAndBuildEntity(SitePathRuleDTO dto) {
+        PathCheckType checkType = normalizeCheckType(dto.checkType());
+        if (dto.path() == null || dto.path().isBlank() || !dto.path().startsWith("/") || dto.path().startsWith("//")) {
+            throw Errors.BAD_REQUEST.toException("子路由 path 必须是单斜杠开头的相对路径 (path=%s)", dto.path());
+        }
+        if (dto.expectedHttpStatus() == null) {
+            throw Errors.BAD_REQUEST.toException("expectedHttpStatus 不能为空 (path=%s)", dto.path());
+        }
+        if (checkType == PathCheckType.KEYWORD
+                && (dto.expectedText() == null || dto.expectedText().trim().isEmpty())) {
+            throw Errors.BAD_REQUEST.toException("关键字模式下 expectedText 不能为空 (path=%s)", dto.path());
+        }
+
+        String encodedAssertion = null;
+        if (checkType == PathCheckType.JSON_ASSERT) {
+            try {
+                encodedAssertion = assertionCodec.encode(dto.assertionConfig());
+            } catch (IllegalArgumentException e) {
+                throw Errors.BAD_REQUEST.toException(e, "JSON 条件配置不合法 (path=%s): %s", dto.path(), e.getMessage());
             }
         }
-        // 全插新规则；空列表 = 清空该站点全部规则
-        if (request.rules().isEmpty()) {
-            return;
-        }
-        var entities = request.rules().stream()
-                .map(dto -> {
-                    var e = mapper.toEntity(dto);
-                    // id 强制为 null，由数据库自增分配；否则走 merge 时会因行已被批量删除而抛
-                    // StaleObjectStateException（前端在编辑已有规则时会把原 id 一并发回，必须忽略）
-                    e.setId(null);
-                    // 探测状态字段强制为 null，等待下次探测写入；防止前端伪造历史探测结果
-                    e.setLastCheckedAt(null);
-                    e.setLastHttpStatus(null);
-                    e.setLastTextMatched(null);
-                    e.setLastErrorMessage(null);
-                    // counter 一并归零：expected_http_status 可能已被前端改过，
-                    // 旧 counter 是基于"旧 expected + 旧 last_http_status"统计的，留着会误判
-                    e.setConsecutiveFailures(0);
-                    return e;
-                })
-                .toList();
-        ruleRepo.saveAll(entities);
+
+        var entity = mapper.toEntity(dto);
+        entity.setId(null);
+        entity.setCheckType(checkType);
+        entity.setAssertionConfig(encodedAssertion);
+        entity.setLastCheckedAt(null);
+        entity.setLastHttpStatus(null);
+        entity.setLastTextMatched(null);
+        entity.setLastJsonMatched(null);
+        entity.setLastJsonDetail(null);
+        entity.setLastErrorMessage(null);
+        entity.setConsecutiveFailures(0);
+        return entity;
+    }
+
+    private static PathCheckType normalizeCheckType(PathCheckType checkType) {
+        return checkType == null ? PathCheckType.HTTP_STATUS : checkType;
+    }
+
+    @Override
+    public SitePathRuleTestResultDTO test(Long siteId, SitePathRuleTestRequest request) {
+        var site = siteRepo.findById(siteId)
+                .orElseThrow(() -> Errors.NOT_FOUND.toException("站点不存在 (ID: {})", siteId));
+        var dto = new SitePathRuleDTO(null, siteId, request.path(), request.expectedHttpStatus(),
+                request.checkType(), request.expectedText(), request.assertionConfig(),
+                null, null, null, null, null, null, null);
+        SitePathRule rule = validateAndBuildEntity(dto);
+        rule.setSiteId(siteId);
+        var result = pathCheckProbe.test(site, rule);
+        return new SitePathRuleTestResultDTO(
+                result.requestCompleted(), result.httpStatus(), result.httpStatusMatched(),
+                result.bodyParsed(), result.jsonMatched(), result.textMatched(), result.healthy(),
+                result.summary(), result.conditions(), result.errorMessage());
     }
 
     @Override
     @Transactional
     public void delete(Long ruleId) {
-        if (!ruleRepo.existsById(ruleId)) {
-            return;  // 幂等：不存在不抛
+        if (ruleRepo.existsById(ruleId)) {
+            ruleRepo.deleteById(ruleId);
         }
-        ruleRepo.deleteById(ruleId);
     }
 
     @Override
     @Transactional(readOnly = true)
     public List<SitePathCheckHistoryDTO> listRecentHistory(Long ruleId, int limit) {
-        /// 钳制 limit：下限 1、上限 MAX_RECENT_HISTORY。外部传 0/负数/超大值都收敛到合法范围。
         int safeLimit = Math.max(1, Math.min(limit, MAX_RECENT_HISTORY));
         var pageable = PageRequest.of(0, safeLimit);
         return historyRepo.findByRuleIdOrderByCheckedAtDesc(ruleId, pageable).stream()
@@ -139,11 +171,11 @@ public class SitePathRuleServiceImpl implements SitePathRuleService {
                 .toList();
     }
 
-    /// entity → DTO 映射。当前两表字段基本 1:1，未来 DTO 加展示字段只在这里改。
-    private static SitePathCheckHistoryDTO toHistoryDto(SitePathCheckHistory h) {
+    private static SitePathCheckHistoryDTO toHistoryDto(SitePathCheckHistory history) {
         return new SitePathCheckHistoryDTO(
-                h.getId(), h.getSiteId(), h.getRuleId(), h.getPath(),
-                h.getCheckedAt(), h.getStatus(), h.getHttpStatus(),
-                h.getTextMatched(), h.getErrorMessage());
+                history.getId(), history.getSiteId(), history.getRuleId(), history.getPath(),
+                history.getCheckedAt(), history.getStatus(), history.getHttpStatus(),
+                history.getTextMatched(), history.getJsonMatched(), history.getJsonDetail(),
+                history.getErrorMessage());
     }
 }

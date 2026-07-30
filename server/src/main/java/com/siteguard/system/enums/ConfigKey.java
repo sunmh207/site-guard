@@ -29,7 +29,10 @@ public enum ConfigKey {
     /// 定时发送报告配置：每日定时把 dashboard 快照（摘要 + 异常列表）推送到已配置的通知机器人。
     /// 默认不启用（enabled=false）；time 默认 "08:00"。启用前提：NOTIFICATION 已配置且 enabled=true。
     /// 调度器 ScheduledReportScheduler 每分钟检查一次是否到点、是否今日已发。
-    SCHEDULED_REPORT("scheduled_report", com.siteguard.system.config.ScheduledReportConfig.class);
+    SCHEDULED_REPORT("scheduled_report", com.siteguard.system.config.ScheduledReportConfig.class),
+
+    /// 站点品牌配置；只能经 branding 领域接口读写，通用配置 Controller 会显式拒绝。
+    BRANDING("branding", com.siteguard.branding.config.BrandingConfig.class);
 
     @Getter
     private final String key;

@@ -3,6 +3,7 @@ package com.siteguard.monitor.mapper;
 import com.siteguard.monitor.dto.SitePathRuleDTO;
 import com.siteguard.monitor.entity.SitePathRule;
 import org.mapstruct.Mapper;
+import org.mapstruct.Mapping;
 import org.mapstruct.ReportingPolicy;
 
 import java.util.List;
@@ -14,13 +15,15 @@ import java.util.List;
 @Mapper(componentModel = "spring", unmappedTargetPolicy = ReportingPolicy.IGNORE)
 public interface SitePathRuleMapper {
 
-    /// SitePathRule → SitePathRuleDTO
+    /// SitePathRule → SitePathRuleDTO；assertionConfig 由 service 通过 codec 解码。
+    @Mapping(target = "assertionConfig", ignore = true)
     SitePathRuleDTO toDTO(SitePathRule rule);
 
     /// 列表转换
     List<SitePathRuleDTO> toRows(List<SitePathRule> rules);
 
-    /// DTO → Entity（注意：探测状态字段 last_* 必须由调用方在 mapper 调用之后强制置 null，
-    /// 防止前端伪造历史探测结果；MapStruct 自动映射会复制 DTO 上的 last_* 字段）
+    /// DTO → Entity。结构化 assertionConfig 由 service 通过 codec 编码，避免隐式对象→字符串映射。
+    /// 探测状态字段 last_* 仍由调用方在 mapper 后强制清空，防止前端伪造结果。
+    @Mapping(target = "assertionConfig", ignore = true)
     SitePathRule toEntity(SitePathRuleDTO dto);
 }

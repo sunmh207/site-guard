@@ -43,6 +43,27 @@ describe('adminSitePathRuleApi', () => {
     )
   })
 
+  it('testPathRule uses POST with editable rule body', async () => {
+    const request = {
+      path: '/systeminfo',
+      expectedHttpStatus: 200,
+      checkType: 'JSON_ASSERT' as const,
+      expectedText: null,
+      assertionConfig: {
+        version: 1 as const,
+        combinator: 'ALL' as const,
+        conditions: [
+          { path: 'diskAvailableSpaceRate', operator: 'NUMBER_GT' as const, expectedValue: '10' },
+        ],
+      },
+    }
+    await adminSitePathRuleApi.testPathRule(1, request)
+    expect($adminApiMock).toHaveBeenCalledWith(
+      '/site/1/pathRule/test',
+      expect.objectContaining({ method: 'POST', body: request }),
+    )
+  })
+
   it('deletePathRule uses POST with body { id }', async () => {
     await adminSitePathRuleApi.deletePathRule(7)
     expect($adminApiMock).toHaveBeenCalledWith(
