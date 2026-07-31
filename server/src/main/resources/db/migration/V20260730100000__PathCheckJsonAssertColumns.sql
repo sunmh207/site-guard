@@ -1,4 +1,4 @@
-ll-- 子路由健康检查：新增 JSON 条件配置和最近评估结果。
+-- 子路由健康检查：新增 JSON 条件配置和最近评估结果。
 ALTER TABLE `site_path_rule`
     ADD COLUMN `assertion_config` TEXT NULL COMMENT
         'JSON 条件配置（versioned JSON）；check_type=JSON_ASSERT 时必填' AFTER `expected_text`,
