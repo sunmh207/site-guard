@@ -52,15 +52,7 @@ useIntervalFn(() => {
         </template>
         <template #title>
           <span class="flex min-w-0 items-center gap-2">
-            <BrandIcon
-              :src="branding.iconUrl"
-              :custom="branding.customIcon"
-              :alt="`${branding.name} 图标`"
-              class="h-5 w-5 flex-shrink-0 text-success"
-            />
-            <span class="truncate" :title="`${branding.name} 监控仪表盘`">
-              {{ branding.name }} 监控仪表盘
-            </span>
+           仪表盘
           </span>
         </template>
         <template #right>
