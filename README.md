@@ -63,7 +63,7 @@ cd server
 
 ```bash
 cd web
-pnpm install
+pnpm i
 pnpm dev
 ```
 
