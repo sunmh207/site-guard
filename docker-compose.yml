@@ -24,7 +24,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: ghcr.io/sunmh207/site-guard:0.6.0
+    image: ghcr.io/sunmh207/site-guard:0.6.1
     container_name: site-guard
     ports:
       - "1080:80"
