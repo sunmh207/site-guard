@@ -5,7 +5,7 @@
 </script>
 
 <template>
-  <div class="relative flex min-h-screen items-center justify-center overflow-hidden bg-gradient-to-br from-elevated via-elevated to-success/5 dark:from-inverted dark:via-inverted dark:to-success/10 px-4 py-12">
+  <div class="relative flex min-h-screen items-center justify-center overflow-hidden bg-gradient-to-br from-elevated via-elevated to-success/5 dark:from-default dark:via-default dark:to-success/10 px-4 py-12">
     <!-- 背景装饰：右上 / 左下柔和光晕 -->
     <div class="pointer-events-none absolute -top-32 -right-32 w-96 h-96 rounded-full bg-success/10 blur-3xl" />
     <div class="pointer-events-none absolute -bottom-32 -left-32 w-96 h-96 rounded-full bg-primary/10 blur-3xl" />
