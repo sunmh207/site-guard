@@ -270,12 +270,26 @@ async function onCategoryChanged(newNode?: CategoryTreeNode) {
   await refresh()
 }
 
-/// 拖拽站点行的 dragstart：把 id 列表写入 dataTransfer
+/// 拖拽站点行的 dragstart：把 id 列表写入 dataTransfer，并把当前行变淡表示"被拎起"。
+/// e.target 是 cell 内被 drag 的元素（拖拽图标），需要 closest('tr') 拿到 UTable 渲染出的整行；
+/// dragend 时清掉，避免 ESC / 拖出后残留。
 function onRowDragStart(e: DragEvent, site: SiteDto) {
   if (!e.dataTransfer) return
   e.dataTransfer.setData('text/site-ids', JSON.stringify([site.id]))
   e.dataTransfer.effectAllowed = 'move'
+  const start = e.target as HTMLElement | null
+  const row = start?.closest('tr')
+  if (row) row.classList.add('opacity-60')
 }
+
+function onRowDragEnd(e: DragEvent) {
+  const end = e.target as HTMLElement | null
+  const row = end?.closest('tr')
+  if (row) row.classList.remove('opacity-60')
+}
+
+/// 分类树引用：调用 expose 出来的 flashError(targetId) 让失败节点闪红边框
+const categoryTreeRef = ref<{ flashError: (id: number) => void } | null>(null)
 
 /// 拖到分类树上：批量移动站点 + 同步刷新。
 /// 不切换 cat.selectedId：用户连续拖动时焦点保持当前分类，便于继续拖动其他站点。
@@ -289,6 +303,8 @@ async function onDropSites(siteIds: number[], targetId: number) {
   }
   catch (e: any) {
     message.error(e?.data?.message ?? e?.message ?? '移动失败')
+    /// 触发目标分类节点闪红边框 0.5s，让用户清楚是哪个分类接收失败
+    categoryTreeRef.value?.flashError(targetId)
   }
 }
 
@@ -352,15 +368,17 @@ const statusOptions = [
 
 const columns = [
   {
-    /// 拖拽手柄列：把站点行"握住"拖到分类树上即可修改分类
+    /// 拖拽手柄列：默认隐藏，鼠标 hover 到整行时才显示（依赖 UTable ui.tr 注入的 group 类）。
+    /// 其它逻辑不变：onRowDragStart 把站点 id 写入 dataTransfer，分类树通过 drop-sites 接收。
     id: 'drag',
     header: '',
     cell: ({ row }: { row: Row<SiteDto> }) => (
       <div
         draggable="true"
-        class="cursor-move text-muted select-none px-2"
+        class="cursor-move text-muted select-none px-1 opacity-0 group-hover:opacity-100 transition-opacity"
         title="拖动以修改分类"
         onDragstart={(e: DragEvent) => onRowDragStart(e, row.original)}
+        onDragend={(e: DragEvent) => onRowDragEnd(e)}
       >⋮⋮</div>
     ),
   },
@@ -501,6 +519,7 @@ async function resetFilters() {
             @move-to="onMoveTo"
           >
             <CategoryTree
+              ref="categoryTreeRef"
               :tree="cat.tree.value"
               :selected-id="cat.selectedId.value"
               @select="(id) => cat.select(id)"
@@ -528,7 +547,19 @@ async function resetFilters() {
             <UButton label="重置" color="neutral" variant="outline" @click="resetFilters" />
           </div>
 
-          <UTable :data="rows?.data || []" :columns="columns" class="mt-4 flex-1" />
+          <!--
+            UTable 的 tr 注入 `group`：让拖拽手柄列里的 group-hover:opacity-100 在整行 hover 时触发。
+            td 收紧 padding：拖拽列默认占位小，ID 列原本贴近左侧，去掉冗余空白更紧凑。
+          -->
+          <UTable
+            :data="rows?.data || []"
+            :columns="columns"
+            class="mt-4 flex-1"
+            :ui="{
+              tr: 'group',
+              td: 'px-2 py-2 first:pl-2',
+            }"
+          />
 
           <div class="mt-4 flex items-center justify-between">
             <div class="text-sm text-default">

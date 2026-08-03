@@ -35,6 +35,12 @@ const activeIndicatorId = ref<number | null>(null)
 const activeIndicatorSide = ref<'before' | 'after' | null>(null)
 provide('categoryTreeIndicator', { activeIndicatorId, activeIndicatorSide })
 
+/// 跨 Node 共享的"失败闪烁信号"：sites.vue 在 moveSites 失败时调用 flashError(targetId)，
+/// 节点匹配 id 后会闪一下红边框 0.5s。
+const errorFlashId = ref<number | null>(null)
+const errorFlashSeq = ref(0)
+provide('categoryTreeErrorFlash', { errorFlashId, errorFlashSeq })
+
 /// 初始化时默认展开第一层
 onMounted(() => {
   for (const n of props.tree) {
@@ -64,6 +70,14 @@ function onContext(node: CategoryTreeNode, e: MouseEvent) {
 function onDropSites(siteIds: number[], targetId: number) {
   emit('drop-sites', siteIds, targetId)
 }
+
+/// 暴露给父页面 sites.vue：moveSites 失败时调用，触发目标节点闪红边框 0.5s
+function flashError(targetId: number) {
+  errorFlashId.value = targetId
+  errorFlashSeq.value += 1
+}
+
+defineExpose({ flashError })
 
 function onCategoryDrop(sourceId: number, sourceParent: string, targetId: number, targetParent: number | null, before: boolean) {
   /// 跨父级 drop 直接 no-op

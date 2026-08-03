@@ -15,12 +15,19 @@
 ///
 /// 指示线：用 provide/inject 共享 activeIndicatorId + activeIndicatorSide，
 /// 保证整棵分类树同一时刻只有一条蓝线（鼠标跨 Node 移动时旧 Node 自动清除）。
-import { computed, inject, ref, type Ref } from 'vue'
+import { computed, inject, ref, watch, type Ref } from 'vue'
 import type { CategoryTreeNode } from '../types/category.dto'
 
 interface IndicatorState {
   activeIndicatorId: Ref<number | null>
   activeIndicatorSide: Ref<'before' | 'after' | null>
+}
+
+/// 失败闪烁信号：sites.vue moveSites 失败时由 CategoryTree 调用 flashError(targetId) 触发
+interface ErrorFlashState {
+  errorFlashId: Ref<number | null>
+  /// 单调递增 seq，避免同一 target 连续两次失败时 watch 触发条件被吞
+  errorFlashSeq: Ref<number>
 }
 
 const props = defineProps<{
@@ -44,7 +51,13 @@ const isSelected = computed(() => props.selectedId === props.node.id)
 const paddingLeft = computed(() => `${props.depth * 14 + 4}px`)
 
 const indicatorState = inject<IndicatorState>('categoryTreeIndicator')
+const errorFlashState = inject<ErrorFlashState>('categoryTreeErrorFlash')
 const isDragging = ref(false)
+
+/// 站点拖入命中状态：鼠标悬停在本节点上时为 true
+const isSiteDropTarget = ref(false)
+/// 失败闪烁：移动站点到本分类失败时短暂 true，0.5s 后自动清除
+const errorFlashing = ref(false)
 
 /// 本节点是否当前显示指示线：从共享状态读
 const indicatorSide = computed<'before' | 'after' | null>(() => {
@@ -81,10 +94,22 @@ function onDragOver(e: DragEvent) {
     setIndicator(e.clientY < midY ? 'before' : 'after')
     return
   }
-  /// 站点拖入
+  /// 站点拖入：preventDefault + 标记命中目标，让 template 显示蓝色 ring/背景/徽章
   if (e.dataTransfer?.types.includes('text/site-ids')) {
     e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    isSiteDropTarget.value = true
   }
+}
+
+/// dragleave 会因为鼠标进入子元素而频繁触发：
+/// 只有当 relatedTarget 不在当前 row 内（或为 null）时才视为真正离开节点。
+function onDragLeave(e: DragEvent) {
+  if (!isSiteDropTarget.value) return
+  const target = e.currentTarget as HTMLElement
+  const related = e.relatedTarget as Node | null
+  if (related && target.contains(related)) return
+  isSiteDropTarget.value = false
 }
 
 function onDrop(e: DragEvent) {
@@ -102,6 +127,7 @@ function onDrop(e: DragEvent) {
       // 静默忽略
     }
     setIndicator(null)
+    isSiteDropTarget.value = false
     return
   }
   /// 否则视为调序 drop
@@ -131,19 +157,44 @@ function onHandleDragEnd() {
   isDragging.value = false
   setIndicator(null)
 }
+
+/// 监听父级广播的失败信号：本节点 id 命中时闪红边框 0.5s
+if (errorFlashState) {
+  watch(
+    () => [errorFlashState.errorFlashId.value, errorFlashState.errorFlashSeq.value] as const,
+    ([id]) => {
+      if (id !== props.node.id) return
+      errorFlashing.value = true
+      setTimeout(() => { errorFlashing.value = false }, 500)
+    },
+  )
+}
 </script>
 
 <template>
   <div>
+    <!--
+      行容器：
+      - rounded-md：让 ring 跟随行本身的圆角画，避免 box-shadow 圆角扩散看起来割裂
+      - m-0.5：让 row 与 aside 左侧贴边时，ring 的 2px 外阴影有足够空间完整画出，
+        避免被父容器 padding/背景截掉一段
+      - isSiteDropTarget / errorFlashing：ring 直接画在 row box 外（无 ring-offset），
+        ring 宽度 2px 与行内容之间没有透明 gap，因此 m-0.5 是关键
+    -->
     <div
       :data-tree-node="node.id"
-      class="flex items-center gap-1 py-1 pr-2 cursor-pointer rounded hover:bg-elevated"
-      :class="{ 'bg-elevated text-highlighted': isSelected }"
+      class="flex items-center gap-1 m-0.5 py-1 pr-2 cursor-pointer rounded-md transition-colors"
+      :class="[
+        isSelected ? 'bg-elevated text-highlighted' : 'hover:bg-elevated',
+        isSiteDropTarget ? 'ring-2 ring-primary bg-primary/10 text-highlighted' : '',
+        errorFlashing ? 'ring-2 ring-error bg-error/10' : '',
+      ]"
       :style="{ paddingLeft }"
       :draggable="false"
       @click="onClick"
       @contextmenu="onContext"
       @dragover="onDragOver"
+      @dragleave="onDragLeave"
       @drop="onDrop"
     >
       <!--
@@ -153,7 +204,7 @@ function onHandleDragEnd() {
         阻止 click 冒泡到行 onClick（避免 toggle / select 误触）。
       -->
       <span
-        class="w-4 h-4 flex items-center justify-center text-muted hover:text-highlighted cursor-grab active:cursor-grabbing select-none transition-opacity"
+        class="w-4 h-4 flex items-center justify-center text-muted hover:text-highlighted cursor-move select-none transition-opacity"
         :class="isDragging ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 hover:!opacity-100 focus-visible:opacity-100'"
         draggable="true"
         title="拖动以调整顺序"
