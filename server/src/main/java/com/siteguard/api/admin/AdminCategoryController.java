@@ -2,6 +2,7 @@ package com.siteguard.api.admin;
 
 import com.siteguard.category.dto.CategoryCreateParams;
 import com.siteguard.category.dto.CategoryDeleteParams;
+import com.siteguard.category.dto.CategoryReorderParams;
 import com.siteguard.category.dto.CategoryTreeNode;
 import com.siteguard.category.dto.CategoryUpdateParams;
 import com.siteguard.category.service.CategoryService;
@@ -60,6 +61,14 @@ public class AdminCategoryController {
     @PostMapping("/delete")
     public StatusResult<Void> delete(@Valid @RequestBody CategoryDeleteParams params) {
         service.delete(params.getId(), params.getFallbackId());
+        return StatusResult.ok();
+    }
+
+    /// 调整分类顺序。items 中任一 id 不存在时整批拒绝（404 NOT_FOUND）。
+    @Operation(summary = "调整分类顺序")
+    @PostMapping("/reorder")
+    public StatusResult<Void> reorder(@Valid @RequestBody CategoryReorderParams params) {
+        service.reorder(params.getItems());
         return StatusResult.ok();
     }
 }

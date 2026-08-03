@@ -1,6 +1,7 @@
 package com.siteguard.category.service.impl;
 
 import com.siteguard.category.dto.CategoryCreateParams;
+import com.siteguard.category.dto.CategoryReorderParams;
 import com.siteguard.category.dto.CategoryTreeNode;
 import com.siteguard.category.dto.CategoryUpdateParams;
 import com.siteguard.category.entity.Category;
@@ -178,6 +179,33 @@ public class CategoryServiceImpl implements CategoryService {
         }
         siteRepo.updateCategoryIdBulk(id, fallbackId);
         repo.delete(c);
+    }
+
+    /// 调整分类顺序。
+    ///
+    /// 业务规则：
+    /// - items 中任一 id 在库中不存在 → 抛 AppException(NOT_FOUND)，整批回滚（事务）
+    /// - seq 由调用方计算（步长 100 等），本方法只做覆盖写入
+    /// - 同一事务内完成：先一次性校验所有 id 存在，再循环 save
+    @Override
+    @Transactional
+    public void reorder(List<CategoryReorderParams.Item> items) {
+        if (items == null || items.isEmpty()) return;
+        var ids = items.stream().map(CategoryReorderParams.Item::getId).toList();
+        var found = repo.findAllById(ids);
+        if (found.size() != ids.size()) {
+            var foundIds = found.stream().map(com.siteguard.category.entity.Category::getId).collect(java.util.stream.Collectors.toSet());
+            var missing = ids.stream().filter(id -> !foundIds.contains(id)).toList();
+            throw com.siteguard.common.exception.Errors.NOT_FOUND
+                    .toException("分类不存在 (IDs: {})", missing);
+        }
+        var byId = found.stream().collect(java.util.stream.Collectors.toMap(
+                com.siteguard.category.entity.Category::getId, c -> c));
+        for (var item : items) {
+            var c = byId.get(item.getId());
+            c.setSeq(item.getSeq());
+            repo.save(c);
+        }
     }
 
     /// 收集 id 自身及其所有后代 ID（含 id 自身）

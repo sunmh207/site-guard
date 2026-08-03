@@ -292,6 +292,56 @@ async function onDropSites(siteIds: number[], targetId: number) {
   }
 }
 
+/// 分类顺序调整：平级调序。
+///
+/// 收到 CategoryTree emit('category-reorder', sourceId, targetId, before)，
+/// 构造同父级下完整兄弟 ID 列表（按新顺序），调 cat.reorderWithinParent。
+/// 源/目标父级一致性由 CategoryTree 在 drop 时已校验；这里只需拿到
+/// source.parentId 作为 parentId 传入。
+function findNodeParentId(id: number): number | null {
+  const stack: CategoryTreeNode[] = cat.tree.value.slice()
+  while (stack.length > 0) {
+    const n = stack.pop()!
+    if (n.id === id) return n.parentId
+    if (n.children.length > 0) stack.push(...n.children)
+  }
+  return null
+}
+
+function findSiblingsOrderedExcluding(parentId: number | null, excludeId: number): number[] {
+  const list = parentId == null ? cat.tree.value : findChildren(parentId)
+  if (!list) return []
+  return list.filter(n => n.id !== excludeId).map(n => n.id)
+}
+
+function findChildren(parentId: number): CategoryTreeNode[] | null {
+  const stack: CategoryTreeNode[] = cat.tree.value.slice()
+  while (stack.length > 0) {
+    const n = stack.pop()!
+    if (n.id === parentId) return n.children
+    if (n.children.length > 0) stack.push(...n.children)
+  }
+  return null
+}
+
+async function onReorderCategory(sourceId: number, targetId: number, before: boolean) {
+  const parentId = findNodeParentId(sourceId)
+  if (parentId == null) return
+  /// 兄弟列表（不含 source 自身）按当前顺序
+  const siblings = findSiblingsOrderedExcluding(parentId, sourceId)
+  /// 找到 target 在 siblings 中的位置
+  const targetIdx = siblings.indexOf(targetId)
+  if (targetIdx < 0) return
+  /// 插入到 before/after 位置
+  const insertAt = before ? targetIdx : targetIdx + 1
+  const orderedIds = [
+    ...siblings.slice(0, insertAt),
+    sourceId,
+    ...siblings.slice(insertAt),
+  ]
+  await cat.reorderWithinParent(parentId, orderedIds)
+}
+
 /// 状态过滤选项 - 全部状态用 'ALL' sentinel（USelect 不接受空 value）
 const statusOptions = [
   { label: '全部可用性状态', value: 'ALL' },
@@ -456,6 +506,7 @@ async function resetFilters() {
               @select="(id) => cat.select(id)"
               @context-menu="onCategoryContext"
               @drop-sites="onDropSites"
+              @category-reorder="onReorderCategory"
             />
           </CategoryContextMenu>
         </aside>

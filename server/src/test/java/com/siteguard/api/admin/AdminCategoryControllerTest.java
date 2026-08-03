@@ -82,4 +82,23 @@ class AdminCategoryControllerTest {
                         .content("{\"id\":1,\"fallbackId\":99}"))
                 .andExpect(status().isOk());
     }
+
+    @Test
+    void reorder_returnsOk() throws Exception {
+        doNothing().when(service).reorder(any());
+
+        mvc.perform(post("/api/v1/admin/category/reorder")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"items\":[{\"id\":1,\"seq\":100},{\"id\":2,\"seq\":200}]}"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void reorder_emptyItems_returns400() throws Exception {
+        /// @NotEmpty 校验失败 → 400
+        mvc.perform(post("/api/v1/admin/category/reorder")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"items\":[]}"))
+                .andExpect(status().isBadRequest());
+    }
 }

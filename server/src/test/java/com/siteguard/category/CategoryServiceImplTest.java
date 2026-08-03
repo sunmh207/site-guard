@@ -104,6 +104,53 @@ class CategoryServiceImplTest {
     }
 
     @Test
+    void reorder_updatesAllSeq() {
+        var c1 = new com.siteguard.category.entity.Category(); c1.setId(1L); c1.setSeq(0);
+        var c2 = new com.siteguard.category.entity.Category(); c2.setId(2L); c2.setSeq(0);
+        var c3 = new com.siteguard.category.entity.Category(); c3.setId(3L); c3.setSeq(0);
+
+        when(repo.findAllById(List.of(1L, 2L, 3L))).thenReturn(List.of(c1, c2, c3));
+
+        var items = List.of(
+                itemOf(1L, 100),
+                itemOf(2L, 200),
+                itemOf(3L, 300)
+        );
+        service.reorder(items);
+
+        assertEquals(100, c1.getSeq());
+        assertEquals(200, c2.getSeq());
+        assertEquals(300, c3.getSeq());
+        verify(repo, times(3)).save(any(com.siteguard.category.entity.Category.class));
+    }
+
+    @Test
+    void reorder_emptyListIsNoop() {
+        service.reorder(List.of());
+        verify(repo, never()).findAllById(any());
+        verify(repo, never()).save(any(com.siteguard.category.entity.Category.class));
+    }
+
+    @Test
+    void reorder_throwsWhenIdMissing() {
+        var c1 = new com.siteguard.category.entity.Category(); c1.setId(1L);
+        /// items 要 id=1 和 id=999，但库只有 id=1
+        when(repo.findAllById(List.of(1L, 999L))).thenReturn(List.of(c1));
+
+        var ex = assertThrows(com.siteguard.common.exception.AppException.class,
+                () -> service.reorder(List.of(itemOf(1L, 100), itemOf(999L, 200))));
+        assertEquals(404, ex.getStatus());
+        verify(repo, never()).save(any(com.siteguard.category.entity.Category.class));
+    }
+
+    private static com.siteguard.category.dto.CategoryReorderParams.Item itemOf(long id, int seq) {
+        var it = new com.siteguard.category.dto.CategoryReorderParams.Item();
+        it.setId(id);
+        it.setSeq(seq);
+        return it;
+    }
+
+    @Test
     void update_systemFlag_cannotChangeParent() {
         var params = new com.siteguard.category.dto.CategoryUpdateParams();
         params.setId(1L);

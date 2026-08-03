@@ -1,6 +1,7 @@
 package com.siteguard.category.service;
 
 import com.siteguard.category.dto.CategoryCreateParams;
+import com.siteguard.category.dto.CategoryReorderParams;
 import com.siteguard.category.dto.CategoryTreeNode;
 import com.siteguard.category.dto.CategoryUpdateParams;
 import java.util.List;
@@ -25,6 +26,12 @@ public interface CategoryService {
     /// 删除分类。在事务内把该分类及其所有后代上的站点迁入 fallbackId，然后删除节点树。
     /// systemFlag 节点禁止删除；ID 不存在或 fallbackId 不存在时抛 AppException。
     void delete(Long id, Long fallbackId);
+
+    /// 调整分类顺序。
+    /// 把 items 中每个 id 对应的分类的 seq 设为 items.seq。
+    /// items 中任一 id 在库中不存在时抛 AppException (NOT_FOUND)，整批回滚。
+    /// 调用方负责计算 seq（步长 100 等）；本方法不做步长合法性校验。
+    void reorder(List<CategoryReorderParams.Item> items);
 
     /// 返回 id 自身及其所有后代的 ID 集合（含 id 自身）。空集合表示 id 不存在。
     Set<Long> descendantIds(Long id);

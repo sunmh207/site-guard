@@ -34,3 +34,11 @@ export interface CategoryOption {
   depth: number
   systemFlag: boolean
 }
+
+/// 分类顺序调整：单个条目
+///
+/// seq 取值步长为 100（10, 20, 30...），给后续插入留出 99 个空位。
+export interface CategoryReorderItem {
+  id: number
+  seq: number
+}
