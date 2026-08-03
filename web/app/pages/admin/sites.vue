@@ -360,7 +360,7 @@ async function onReorderCategory(sourceId: number, targetId: number, before: boo
 
 /// 状态过滤选项 - 全部状态用 'ALL' sentinel（USelect 不接受空 value）
 const statusOptions = [
-  { label: '全部可用性状态', value: 'ALL' },
+  { label: '全部', value: 'ALL' },
   { label: '未检测', value: 'UNKNOWN' },
   { label: '在线', value: 'UP' },
   { label: '离线', value: 'DOWN' },
@@ -441,22 +441,35 @@ const columns = [
     id: 'actions',
     header: '操作',
     cell: ({ row }: { row: Row<SiteDto> }) => {
+      /// 三个点里保留次要操作：暂停/恢复、复制、删除
       const menuItems: DropdownMenuItem[] = [
-        { type: 'label', label: '操作' },
-        { label: '编辑', icon: 'i-lucide-pencil', onSelect: () => openEdit(row.original) },
+        { type: 'label', label: '更多' },
         row.original.paused
           ? { label: '恢复', icon: 'i-lucide-play', onSelect: () => requestPause(row.original, false) }
           : { label: '暂停', icon: 'i-lucide-pause', onSelect: () => requestPause(row.original, true) },
         /// 复制：name 追加" 复制" 后打开 create slideover，paused 状态不继承
         { label: '复制', icon: 'i-lucide-copy', onSelect: () => requestDuplicate(row.original) },
-        /// 子路由检测：打开独立 slideover，避免与编辑抽屉共用导致两个"保存"按钮歧义
-        { label: '子路由检测', icon: 'i-lucide-route', onSelect: () => openPathRule(row.original) },
         { label: '删除', icon: 'i-lucide-trash', color: 'error', onSelect: () => requestDelete(row.original) },
       ]
       return (
-        <div class="text-right">
+        /// 操作列布局：ml-auto 让整组靠右，编辑/子路由检测/三个点 三者紧贴列右沿。
+        <div class="flex items-center justify-end gap-1 ml-auto">
+          <UButton
+            label="编辑"
+            color="neutral"
+            variant="ghost"
+            size="sm"
+            onClick={() => openEdit(row.original)}
+          />
+          <UButton
+            label="子路由检测"
+            color="neutral"
+            variant="ghost"
+            size="sm"
+            onClick={() => openPathRule(row.original)}
+          />
           <UDropdownMenu content={{ align: 'end' }} items={menuItems}>
-            <UButton icon="i-lucide-ellipsis-vertical" color="neutral" variant="ghost" class="ml-auto" />
+            <UButton icon="i-lucide-ellipsis-vertical" color="neutral" variant="ghost" size="sm" />
           </UDropdownMenu>
         </div>
       )
@@ -550,6 +563,7 @@ async function resetFilters() {
           <!--
             UTable 的 tr 注入 `group`：让拖拽手柄列里的 group-hover:opacity-100 在整行 hover 时触发。
             td 收紧 padding：拖拽列默认占位小，ID 列原本贴近左侧，去掉冗余空白更紧凑。
+            actions 表头靠右对齐：与该列内部 button group 的 ml-auto justify-end 对齐。
           -->
           <UTable
             :data="rows?.data || []"
@@ -558,6 +572,7 @@ async function resetFilters() {
             :ui="{
               tr: 'group',
               td: 'px-2 py-2 first:pl-2',
+              th: 'last:text-right',
             }"
           />
 
