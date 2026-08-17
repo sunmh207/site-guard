@@ -3,8 +3,10 @@ package com.siteguard.monitor.repository;
 import com.siteguard.monitor.entity.SiteCheckHistory;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
@@ -16,8 +18,12 @@ import java.util.List;
 /// - findRecentIssues 支撑仪表盘"最近异常"列表
 public interface SiteCheckHistoryRepository extends JpaRepository<SiteCheckHistory, Long> {
 
-    /// 删除指定时间之前的所有历史（清理任务使用）
-    long deleteByCheckedAtLessThan(long threshold);
+    /// 单批删除指定时间之前的历史（清理任务使用），避免将待删除记录加载为实体。
+    @Transactional
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(value = "delete from site_check_history where checked_at < :threshold limit :batchSize", nativeQuery = true)
+    int deleteBatchByCheckedAtLessThan(@Param("threshold") long threshold,
+                                       @Param("batchSize") int batchSize);
 
     /// 删除指定站点的所有历史（站点删除时使用）
     long deleteBySiteId(long siteId);

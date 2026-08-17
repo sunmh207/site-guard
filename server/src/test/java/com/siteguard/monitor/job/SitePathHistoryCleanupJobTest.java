@@ -12,7 +12,9 @@ import org.quartz.JobExecutionException;
 import java.time.Duration;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class SitePathHistoryCleanupJobTest {
@@ -26,12 +28,17 @@ class SitePathHistoryCleanupJobTest {
     @Test
     void executeInternal_deletesHistoryOlderThan7Days() throws JobExecutionException {
         long before = System.currentTimeMillis();
+        when(historyRepo.deleteBatchByCheckedAtLessThan(org.mockito.ArgumentMatchers.anyLong(),
+                org.mockito.ArgumentMatchers.eq(10_000)))
+                .thenReturn(10_000, 10_000, 321);
 
         job.executeInternal(null);
 
         var captor = ArgumentCaptor.forClass(Long.class);
-        verify(historyRepo).deleteByCheckedAtLessThan(captor.capture());
-        long threshold = captor.getValue();
+        verify(historyRepo, times(3)).deleteBatchByCheckedAtLessThan(captor.capture(),
+                org.mockito.ArgumentMatchers.eq(10_000));
+        long threshold = captor.getAllValues().getFirst();
+        assertTrue(captor.getAllValues().stream().allMatch(value -> value == threshold));
         long sevenDaysMs = Duration.ofDays(7).toMillis();
         long upperBound = before - sevenDaysMs + 5_000;
         long lowerBound = before - sevenDaysMs - 5_000;

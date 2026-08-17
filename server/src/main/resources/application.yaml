@@ -62,7 +62,7 @@ logging:
   level:
     root: ${LOG_LEVEL:INFO}
   file:
-    name: ${LOG_FILE:/app/logs/site-guard.log}
+    name: ${LOG_FILE:./logs/site-guard.log}
   logback:
     rollingpolicy:
       max-file-size: 100MB
