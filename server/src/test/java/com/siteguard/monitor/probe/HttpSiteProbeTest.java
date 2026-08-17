@@ -196,7 +196,7 @@ class HttpSiteProbeTest {
         server.createContext("/slow", ex -> {
             hits.incrementAndGet();
             try {
-                Thread.sleep(7000);
+                Thread.sleep(17_000);
             } catch (InterruptedException ignored) {
             }
             ex.sendResponseHeaders(200, -1);
@@ -243,13 +243,7 @@ class HttpSiteProbeTest {
         var info = HttpSiteProbe.extractCertInfo(cert);
 
         assertNotNull(info);
-        // 测试 keystore 有效期 36500 天（约 100 年），notAfter 应当大致 = now + 36500d
-        long oneDayMs = 86_400_000L;
-        long now = System.currentTimeMillis();
-        long expected = now + 36500L * oneDayMs;
-        long tolerance = oneDayMs;  // 1 天容差
-        assertTrue(info.expiresAt() >= expected - tolerance && info.expiresAt() <= expected + tolerance,
-                "expiresAt should be ~" + expected + " but was " + info.expiresAt());
+        assertEquals(cert.getNotAfter().getTime(), info.expiresAt());
         // 测试证书的 CN=127.0.0.1
         assertNotNull(info.issuer());
         assertTrue(info.issuer().contains("127.0.0.1"), "issuer should contain CN=127.0.0.1 but was " + info.issuer());

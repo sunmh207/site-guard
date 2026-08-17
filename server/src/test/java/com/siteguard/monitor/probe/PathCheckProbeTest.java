@@ -209,7 +209,7 @@ class PathCheckProbeTest {
 
     @Test
     void httpTimeoutException_writesTimeoutMessage() {
-        // StubHttpClient 抛 HttpTimeoutException → lastErrorMessage 必须是 "timeout after 5s"
+        // StubHttpClient 抛 HttpTimeoutException → lastErrorMessage 必须包含当前 15 秒超时配置
         var stub = StubHttpClient.builder()
                 .onPath("/slow", StubOutcome.throwOf(HttpTimeoutException.class, "request timed out"))
                 .build();
@@ -221,7 +221,7 @@ class PathCheckProbeTest {
         stubProbe.probe(site());
 
         assertNull(r.getLastHttpStatus());
-        assertEquals("timeout after 5s", r.getLastErrorMessage());
+        assertEquals("timeout after 15s", r.getLastErrorMessage());
     }
 
     @Test

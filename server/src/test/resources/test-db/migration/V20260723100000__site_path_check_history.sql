@@ -11,5 +11,5 @@ CREATE TABLE site_path_check_history (
     error_message VARCHAR(512) NULL
 );
 CREATE INDEX idx_rule_checked ON site_path_check_history(rule_id, checked_at);
-CREATE INDEX idx_site_checked ON site_path_check_history(site_id, checked_at);
+CREATE INDEX idx_path_history_site_checked ON site_path_check_history(site_id, checked_at);
 CREATE INDEX idx_path_hist_checked ON site_path_check_history(checked_at);

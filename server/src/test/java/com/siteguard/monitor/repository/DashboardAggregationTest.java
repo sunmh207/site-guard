@@ -89,6 +89,7 @@ class DashboardAggregationTest {
         var s = new Site();
         s.setName(name);
         s.setUrl("https://" + name + ".example.com");
+        s.setCategoryId(1L);
         s.setAvailabilityStatus(status);
         return s;
     }

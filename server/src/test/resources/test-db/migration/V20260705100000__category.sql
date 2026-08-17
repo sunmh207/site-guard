@@ -3,13 +3,14 @@ CREATE TABLE category (
     parent_id     BIGINT       NULL,
     name          VARCHAR(64)  NOT NULL,
     seq           INT          NOT NULL DEFAULT 0,
-    system_flag   TINYINT(1)   NOT NULL DEFAULT 0,
+    system_flag   BOOLEAN      NOT NULL DEFAULT FALSE,
     created_at    BIGINT       NOT NULL,
     updated_at    BIGINT       NOT NULL,
     PRIMARY KEY (id),
-    UNIQUE KEY uk_category_parent_name (parent_id, name),
-    KEY idx_category_parent (parent_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='站点分类表';
+    CONSTRAINT uk_category_parent_name UNIQUE (parent_id, name)
+);
+
+CREATE INDEX idx_category_parent ON category(parent_id);
 
 INSERT INTO category (parent_id, name, seq, system_flag, created_at, updated_at)
-VALUES (NULL, '默认分类', 0, 1, UNIX_TIMESTAMP() * 1000, UNIX_TIMESTAMP() * 1000);
+VALUES (NULL, '默认分类', 0, TRUE, 0, 0);
