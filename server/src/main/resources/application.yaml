@@ -61,6 +61,12 @@ app:
 logging:
   level:
     root: ${LOG_LEVEL:INFO}
+  file:
+    name: ${LOG_FILE:/app/logs/site-guard.log}
+  logback:
+    rollingpolicy:
+      max-file-size: 100MB
+      max-history: 30
 
 springdoc:
   api-docs:
